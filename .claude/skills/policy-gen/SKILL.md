@@ -1,7 +1,7 @@
 ---
 name: policy-gen
 description: Generate SOC 2 compliance policy documents tailored to your company.
-user_invocable: true
+user-invocable: true
 ---
 
 # Policy Generator

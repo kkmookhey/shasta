@@ -1,7 +1,7 @@
 ---
 name: remediate
 description: Get interactive remediation guidance for compliance findings, including Terraform code and step-by-step instructions.
-user_invocable: true
+user-invocable: true
 ---
 
 # Remediate

@@ -1,7 +1,7 @@
 ---
 name: report
 description: Generate professional compliance reports (Markdown, HTML, PDF) from the latest scan data.
-user_invocable: true
+user-invocable: true
 ---
 
 # Report

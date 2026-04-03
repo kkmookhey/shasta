@@ -1,7 +1,7 @@
 ---
 name: review-access
 description: Run a periodic IAM access review — lists all users, permissions, activity, and flags issues. Required quarterly for SOC 2.
-user_invocable: true
+user-invocable: true
 ---
 
 # Access Review

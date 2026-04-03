@@ -1,7 +1,7 @@
 ---
 name: evidence
 description: Collect and store point-in-time compliance evidence snapshots for audit trail.
-user_invocable: true
+user-invocable: true
 ---
 
 # Evidence Collection

@@ -1,7 +1,7 @@
 ---
 name: sbom
 description: Generate a Software Bill of Materials (SBOM) from your AWS environment and scan for vulnerable/compromised packages.
-user_invocable: true
+user-invocable: true
 ---
 
 # SBOM — Software Bill of Materials

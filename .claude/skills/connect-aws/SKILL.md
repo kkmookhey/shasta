@@ -1,7 +1,7 @@
 ---
 name: connect-aws
 description: Connect to an AWS account, validate credentials, and discover what services are in use.
-user_invocable: true
+user-invocable: true
 ---
 
 # Connect AWS

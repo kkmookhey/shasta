@@ -1,7 +1,7 @@
 ---
 name: gap-analysis
 description: Run a full SOC 2 gap analysis against the connected AWS account and present findings with remediation guidance.
-user_invocable: true
+user-invocable: true
 ---
 
 # Gap Analysis

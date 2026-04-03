@@ -1,7 +1,7 @@
 ---
 name: threat-advisory
 description: Generate a personalized threat advisory based on your tech stack — what CVEs, breaches, and supply chain attacks matter to YOU.
-user_invocable: true
+user-invocable: true
 ---
 
 # Threat Advisory

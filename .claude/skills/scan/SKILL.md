@@ -1,7 +1,7 @@
 ---
 name: scan
 description: Run SOC 2 compliance checks against the connected AWS account and display findings.
-user_invocable: true
+user-invocable: true
 ---
 
 # Scan

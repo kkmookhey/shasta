@@ -1,0 +1,11 @@
+{
+  "aws_profile": "",
+  "aws_region": "us-east-1",
+  "python_cmd": "python3",
+  "company_name": "",
+  "github_repos": [],
+  "slack_webhook_url": "",
+  "jira_base_url": "",
+  "jira_email": "",
+  "jira_project_key": ""
+}

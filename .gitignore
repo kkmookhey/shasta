@@ -35,3 +35,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# User-specific config (template is shasta.config.template.json)
+shasta.config.json

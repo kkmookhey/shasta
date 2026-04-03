@@ -8,69 +8,47 @@ user-invocable: true
 
 You are helping a semi-technical founder connect Shasta to their AWS account for SOC 2 compliance scanning.
 
+## Configuration
+
+Shasta uses `shasta.config.json` in the project root for all settings. Before running any commands, check if this file has `aws_profile` set. If not, you'll need to configure it.
+
 ## What to do
 
-1. **Check for existing AWS credentials** by running:
-   ```bash
-   python -c "from shasta.aws.client import AWSClient; c = AWSClient(); info = c.validate_credentials(); print(f'Connected to AWS account {info.account_id} ({info.account_aliases or [\"no alias\"]})\nIdentity: {info.user_arn}\nRegion: {info.region}')"
-   ```
+1. **Check if shasta.config.json is configured.** Read the file. If `aws_profile` is empty, ask the user:
+   - What is your AWS CLI profile name? (run `aws configure list-profiles` to show options)
+   - Or are they using environment variables?
+   - What region? (default: us-east-1)
+   - What is their company name? (for policy generation later)
+   
+   Update `shasta.config.json` with their answers.
 
-2. **If credentials fail**, guide the user through setup:
-   - Ask which method they prefer: AWS CLI profile, environment variables, or SSO
-   - For CLI profile: `aws configure --profile shasta`
-   - For env vars: set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_DEFAULT_REGION`
-   - For SSO: `aws sso login --profile <profile>`
-   - Remind them the IAM user/role needs **ReadOnly** access at minimum (the `ReadOnlyAccess` AWS managed policy works)
+2. **Also detect the correct Python command.** Run `python3 --version` and `python --version` to find which works. Update `python_cmd` in the config.
 
-3. **Once connected**, discover services in use:
+3. **Validate AWS credentials** by running (substitute the correct python command and profile):
    ```bash
-   python -c "
-   from shasta.aws.client import AWSClient
-   c = AWSClient()
+   <PYTHON_CMD> -c "
+   from shasta.config import get_aws_client
+   c = get_aws_client()
    info = c.validate_credentials()
    services = c.discover_services()
-   print(f'\nAWS Account: {info.account_id}')
+   print(f'AWS Account: {info.account_id}')
    print(f'Aliases: {info.account_aliases or [\"none\"]}')
    print(f'Identity: {info.user_arn}')
    print(f'Region: {info.region}')
-   print(f'\nServices detected: {services if services else \"none (empty account)\"}')
+   print(f'Services detected: {services if services else \"none (empty account)\"}')
    "
    ```
 
 4. **Initialize the Shasta database**:
    ```bash
-   python -c "from shasta.db.schema import ShastaDB; db = ShastaDB(); db.initialize(); print('Database initialized at data/shasta.db')"
+   <PYTHON_CMD> -c "from shasta.db.schema import ShastaDB; db = ShastaDB(); db.initialize(); print('Database initialized at data/shasta.db')"
    ```
 
-5. **Present results** in a clear, friendly format:
-   - Account ID and alias
-   - Who you're authenticated as
-   - Which region
-   - Which services were detected
-   - What Shasta will scan based on detected services
-   - Next step: suggest running `/scan` to start the compliance check
+5. **Present results** in a clear, friendly format and suggest running `/scan` next.
 
 ## Important notes
 
-- Never ask the user to paste AWS credentials into the chat. Always use AWS CLI configuration or environment variables.
-- If the user has multiple accounts, ask which one they want to scan.
-- If the user's IAM permissions are too restrictive, list which specific permissions Shasta needs.
-- Be encouraging — this is likely their first step toward SOC 2 compliance.
-
-## Required permissions
-
-The connected IAM identity needs at minimum:
-- `sts:GetCallerIdentity`
-- `iam:List*`, `iam:Get*`
-- `s3:ListAllMyBuckets`, `s3:GetBucket*`
-- `ec2:Describe*`
-- `rds:Describe*`
-- `lambda:List*`
-- `cloudtrail:Describe*`, `cloudtrail:GetTrailStatus`
-- `guardduty:List*`
-- `kms:List*`
-- `ecs:List*`
-- `cloudwatch:Describe*`
-- `config:Describe*`
-
-The `ReadOnlyAccess` managed policy covers all of these.
+- **Never ask the user to paste AWS credentials into the chat.** Always use AWS CLI configuration or environment variables.
+- Replace `<PYTHON_CMD>` with whatever works on this machine (`python3`, `python`, or `py -3.12`).
+- If credentials fail, guide them through `aws configure --profile <name>` or `aws sso login`.
+- The IAM role needs ReadOnly access. The scoped policy is at `infra/shasta-scanning-policy.json` (42 read-only permissions).

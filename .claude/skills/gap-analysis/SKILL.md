@@ -6,45 +6,37 @@ user-invocable: true
 
 # Gap Analysis
 
-You are performing a SOC 2 gap analysis for a semi-technical founder. This is the most important deliverable — it tells them exactly where they stand and what to do next.
+You are performing a SOC 2 gap analysis for a semi-technical founder.
 
 ## What to do
 
-1. **Run a full compliance scan and generate the gap analysis:**
+Read `shasta.config.json` for `python_cmd`. Use that command for all Python calls (shown as `<PYTHON_CMD>` below).
+
+1. **Run scan and generate reports:**
    ```bash
-   py -3.12 -c "
-   from shasta.aws.client import AWSClient
+   <PYTHON_CMD> -c "
+   from shasta.config import get_aws_client
    from shasta.scanner import run_full_scan
    from shasta.reports.generator import save_markdown_report, save_html_report
    from shasta.db.schema import ShastaDB
 
-   client = AWSClient(profile_name='shasta-admin')
+   client = get_aws_client()
    client.validate_credentials()
-
    print('Running full compliance scan...')
    scan = run_full_scan(client)
-
-   db = ShastaDB()
-   db.initialize()
-   db.save_scan(scan)
-
-   md_path = save_markdown_report(scan)
-   html_path = save_html_report(scan)
-
-   print(f'Markdown report: {md_path}')
-   print(f'HTML report: {html_path}')
-   print(f'Score: {scan.summary.passed} passed, {scan.summary.failed} failed out of {scan.summary.total_findings} findings')
+   db = ShastaDB(); db.initialize(); db.save_scan(scan)
+   md = save_markdown_report(scan)
+   html = save_html_report(scan)
+   print(f'Markdown: {md}')
+   print(f'HTML: {html}')
+   print(f'{scan.summary.passed} passed, {scan.summary.failed} failed of {scan.summary.total_findings}')
    "
    ```
 
-2. **Read the generated Markdown report** and present the gap analysis to the user interactively.
-
-3. **Structure your response as a consultant would:**
-   - Start with the headline: score, grade, and one-sentence assessment
-   - Group findings by SOC 2 control, not by AWS service
-   - For each failing control: explain what the auditor expects, what's missing, and exact steps to fix
-   - Call out which controls need policy documents (not just AWS config)
-   - End with a numbered, prioritized remediation roadmap
-   - Offer to help fix any specific finding with `/remediate`
-
-4. **Explain in founder-friendly language.** They know their business but may not know AWS security jargon. Use analogies and practical framing.
+2. **Read the Markdown report** and present interactively like a consultant:
+   - Headline score and one-sentence assessment
+   - Findings grouped by SOC 2 control (not by AWS service)
+   - For each failing control: what the auditor expects, what's missing, exact steps
+   - Controls needing policy documents
+   - Prioritized remediation roadmap
+   - Offer `/remediate` to fix specific findings

@@ -10,17 +10,19 @@ You are running a SOC 2 compliance scan for a semi-technical founder. Explain fi
 
 ## What to do
 
-1. **Run the full compliance scan** using the Shasta scanner:
+First, read `shasta.config.json` to get the python command (`python_cmd` field). Use that for all commands below (shown as `<PYTHON_CMD>`).
+
+1. **Run the full compliance scan:**
    ```bash
-   py -3.12 -c "
+   <PYTHON_CMD> -c "
    import json
-   from shasta.aws.client import AWSClient
+   from shasta.config import get_aws_client
    from shasta.scanner import run_full_scan
    from shasta.compliance.mapper import get_control_summary
    from shasta.compliance.scorer import calculate_score
    from shasta.db.schema import ShastaDB
 
-   client = AWSClient(profile_name='shasta-admin')
+   client = get_aws_client()
    client.validate_credentials()
 
    print('Running full compliance scan...')
@@ -39,12 +41,9 @@ You are running a SOC 2 compliance scan for a semi-technical founder. Explain fi
            'controls_passing': score.passing,
            'controls_failing': score.failing,
            'controls_partial': score.partial,
-           'controls_not_assessed': score.not_assessed,
-           'controls_require_policy': score.requires_policy,
            'total_findings': score.total_findings,
            'findings_passed': score.findings_passed,
            'findings_failed': score.findings_failed,
-           'findings_partial': score.findings_partial,
        },
        'findings': [
            {
@@ -66,7 +65,6 @@ You are running a SOC 2 compliance scan for a semi-technical founder. Explain fi
                'overall_status': v['overall_status'],
                'pass_count': v['pass_count'],
                'fail_count': v['fail_count'],
-               'partial_count': v['partial_count'],
            }
            for k, v in get_control_summary(scan.findings).items()
            if v['has_automated_checks'] or v['overall_status'] != 'not_assessed'
@@ -76,29 +74,14 @@ You are running a SOC 2 compliance scan for a semi-technical founder. Explain fi
    "
    ```
 
-2. **Present results clearly** to the founder. Structure your response as:
+2. **Present results clearly:**
+   - Overall score and grade
+   - Critical & high findings with plain-English explanations and specific remediation
+   - SOC 2 control status table
+   - Prioritized next steps
 
-   ### Overall Compliance Score
-   Show the grade, percentage, and what it means practically. Frame it as a roadmap, not a report card.
-
-   ### Critical & High Findings
-   For each finding:
-   - What was found (plain English, no AWS jargon)
-   - Why it matters for SOC 2 (and for their business)
-   - Exactly what to do about it (specific, actionable)
-
-   ### Medium & Low Findings
-   Summarize briefly — group similar findings where possible.
-
-   ### SOC 2 Control Status
-   Table showing each control's status. Call out controls that need policies (not just AWS config).
-
-   ### Prioritized Next Steps
-   Numbered list of what to fix first, ordered by risk and effort. Quick wins first.
-
-## Tone guidelines
-- Use analogies for security concepts ("MFA is like a second lock on your front door")
-- Be specific: "restrict security group sg-xxx to your office IP" not "fix your security groups"
-- Celebrate what's passing — positive reinforcement matters
-- If score is low, frame as "here's where you are and what to do next" not "you're failing"
-- Be encouraging but honest
+## Tone
+- Use analogies ("MFA is like a second lock on your front door")
+- Be specific ("restrict sg-xxx to your office IP" not "fix your security groups")
+- Celebrate what's passing
+- If score is low, frame as roadmap not failure

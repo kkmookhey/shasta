@@ -6,47 +6,37 @@ user-invocable: true
 
 # Report
 
-You are generating a professional SOC 2 compliance report for the founder.
+Generate professional SOC 2 compliance reports.
 
 ## What to do
 
+Read `shasta.config.json` for `python_cmd`. Use that for all commands (shown as `<PYTHON_CMD>`).
+
 1. **Generate all report formats:**
    ```bash
-   py -3.12 -c "
-   from shasta.aws.client import AWSClient
+   <PYTHON_CMD> -c "
+   from shasta.config import get_aws_client
    from shasta.scanner import run_full_scan
    from shasta.reports.generator import save_markdown_report, save_html_report
    from shasta.reports.pdf import save_pdf_report
    from shasta.db.schema import ShastaDB
 
-   client = AWSClient(profile_name='shasta-admin')
+   client = get_aws_client()
    client.validate_credentials()
-
    print('Running compliance scan...')
    scan = run_full_scan(client)
-
-   db = ShastaDB()
-   db.initialize()
-   db.save_scan(scan)
-
+   db = ShastaDB(); db.initialize(); db.save_scan(scan)
    print('Generating reports...')
    md = save_markdown_report(scan)
    html = save_html_report(scan)
    pdf = save_pdf_report(scan)
-
    print(f'Markdown: {md}')
    print(f'HTML:     {html}')
    print(f'PDF:      {pdf}')
-   print('Done!')
    "
    ```
 
-2. **Tell the user where the reports are** and what each format is best for:
-   - **Markdown** — for working sessions, easy to review in any editor
-   - **HTML** — for sharing via email or browser, interactive viewing
-   - **PDF** — for formal deliverables to auditors or investors
-
-3. **Offer next steps:**
-   - `/gap-analysis` for interactive walkthrough of findings
-   - `/remediate` to fix specific issues
-   - `/policy-gen` to generate required policy documents
+2. **Tell the user where reports are** and what each is for:
+   - **Markdown** — working sessions, version control
+   - **HTML** — sharing via email/browser
+   - **PDF** — formal deliverables to auditors/investors

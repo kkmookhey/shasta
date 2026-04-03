@@ -14,8 +14,6 @@ Read `shasta.config.json` for `python_cmd`. Use that for all commands (shown as 
 
 ### Check for a recent scan first
 
-Before running a fresh scan, check if a recent one exists (within the last hour). If so, ask the user whether to reuse it or run fresh.
-
 ```bash
 <PYTHON_CMD> -c "
 from shasta.db.schema import ShastaDB
@@ -25,16 +23,15 @@ if scan:
     print(f'RECENT_SCAN_FOUND|{scan.id}|{scan.completed_at}|{scan.summary.total_findings if scan.summary else 0} findings')
 else:
     print('NO_RECENT_SCAN')
-# Also check access review cadence
 last_review = db.get_last_review_date()
 if last_review: print(f'LAST_ACCESS_REVIEW|{last_review}')
 else: print('NO_ACCESS_REVIEW_FOUND')
 "
 ```
 
-If a recent scan exists, tell the user: "Found a scan from X minutes ago with Y findings. Use that, or run a fresh scan?" If they want fresh, or none exists, proceed.
+If a recent scan exists, tell the user and ask if they want to reuse it or run fresh.
 
-### Run fresh scan (with summary mode)
+### Run fresh scan + generate reports
 
 ```bash
 <PYTHON_CMD> -c "
@@ -44,6 +41,7 @@ from shasta.scanner import run_full_scan
 from shasta.compliance.mapper import get_control_summary
 from shasta.compliance.scorer import calculate_score
 from shasta.reports.summary import summarize_scan
+from shasta.reports.generator import save_markdown_report, save_html_report
 from shasta.db.schema import ShastaDB
 
 client = get_aws_client()
@@ -51,6 +49,10 @@ client.validate_credentials()
 print('Running full compliance scan...')
 scan = run_full_scan(client)
 db = ShastaDB(); db.initialize(); db.save_scan(scan)
+
+md = save_markdown_report(scan)
+html = save_html_report(scan)
+print(f'Reports saved: {md} | {html}')
 
 score = calculate_score(scan.findings)
 summary = summarize_scan(scan)
@@ -71,12 +73,13 @@ print(json.dumps(summary, indent=2))
 
 ### Present results
 
-- **Always show scan timestamp:** "Scan completed at <time>" or "Based on scan from X minutes ago"
-- Show overall score and grade
-- For each check group: "X of Y security groups allow unrestricted ingress — top 5 shown, full list in report"
+- **Show scan timestamp** and report file paths
+- Overall score and grade
+- For each check group: "X of Y resources non-compliant — top 5 shown, full list in report"
 - Critical & high findings with remediation
 - SOC 2 control status table
 - If last access review is >90 days ago, warn: "Quarterly access review overdue — run /review-access"
+- Mention the saved reports: "Full Markdown report at <path>, HTML at <path>. Run /report for PDF."
 
 ### Tone
 - Use analogies, be specific, celebrate what's passing, frame low scores as roadmaps

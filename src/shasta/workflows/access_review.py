@@ -185,6 +185,10 @@ def _build_user_record(
     if all_policy_names & admin_policies:
         flags.append("OVERPRIVILEGED")
 
+    # Check for conflicting/redundant policies
+    # e.g., having both S3ReadOnlyAccess AND S3FullAccess
+    _check_conflicting_policies(all_policy_names, flags)
+
     return UserAccessRecord(
         username=username,
         arn=arn,
@@ -271,3 +275,32 @@ def save_access_review(report: AccessReviewReport, output_path: Path | str = "da
 
     filepath.write_text("\n".join(lines), encoding="utf-8")
     return filepath
+
+
+# ---------------------------------------------------------------------------
+# Conflicting policy detection
+# ---------------------------------------------------------------------------
+
+# Pairs of policies where having both is redundant or conflicting.
+# (broader_policy, narrower_policy) — if both exist, the narrower is redundant.
+CONFLICTING_POLICY_PAIRS = [
+    ("AmazonS3FullAccess", "AmazonS3ReadOnlyAccess"),
+    ("AmazonEC2FullAccess", "AmazonEC2ReadOnlyAccess"),
+    ("AmazonRDSFullAccess", "AmazonRDSReadOnlyAccess"),
+    ("AmazonDynamoDBFullAccess", "AmazonDynamoDBReadOnlyAccess"),
+    ("AmazonSQSFullAccess", "AmazonSQSReadOnlyAccess"),
+    ("AmazonSNSFullAccess", "AmazonSNSReadOnlyAccess"),
+    ("IAMFullAccess", "IAMReadOnlyAccess"),
+    ("AWSLambda_FullAccess", "AWSLambda_ReadOnlyAccess"),
+    ("CloudWatchFullAccess", "CloudWatchReadOnlyAccess"),
+    ("AdministratorAccess", "ReadOnlyAccess"),
+    ("AdministratorAccess", "PowerUserAccess"),
+    ("PowerUserAccess", "ReadOnlyAccess"),
+]
+
+
+def _check_conflicting_policies(all_policies: set[str], flags: list[str]) -> None:
+    """Check for redundant or conflicting policy combinations."""
+    for broader, narrower in CONFLICTING_POLICY_PAIRS:
+        if broader in all_policies and narrower in all_policies:
+            flags.append(f"CONFLICTING_POLICIES({broader}+{narrower})")

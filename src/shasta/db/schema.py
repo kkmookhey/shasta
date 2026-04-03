@@ -208,6 +208,51 @@ class ShastaDB:
         rows = self.conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
+    def get_recent_scan(self, max_age_minutes: int = 60, account_id: str | None = None) -> ScanResult | None:
+        """Get the most recent scan if it's within max_age_minutes.
+
+        Returns None if no scan exists or the latest is too old.
+        Used by skills to avoid re-scanning when recent data exists.
+        """
+        from datetime import datetime, timezone, timedelta
+
+        scan = self.get_latest_scan(account_id)
+        if not scan or not scan.completed_at:
+            return None
+
+        completed = scan.completed_at
+        if isinstance(completed, str):
+            completed = datetime.fromisoformat(completed)
+        if completed.tzinfo is None:
+            completed = completed.replace(tzinfo=timezone.utc)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+        if completed >= cutoff:
+            return scan
+        return None
+
+    def get_last_review_date(self) -> str | None:
+        """Get the date of the most recent access review from saved files.
+
+        Checks data/reviews/ for the most recent review file.
+        """
+        from pathlib import Path
+
+        review_dir = Path("data/reviews")
+        if not review_dir.exists():
+            return None
+
+        reviews = sorted(review_dir.glob("access-review-*.md"), reverse=True)
+        if not reviews:
+            return None
+
+        # Extract date from filename: access-review-ACCOUNT-YYYY-MM-DD.md
+        name = reviews[0].stem  # access-review-470226123496-2026-04-03
+        parts = name.split("-")
+        if len(parts) >= 5:
+            return f"{parts[-3]}-{parts[-2]}-{parts[-1]}"
+        return None
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()

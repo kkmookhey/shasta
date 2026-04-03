@@ -9,10 +9,28 @@ All scripts and skills use this module instead of hardcoding values.
 from __future__ import annotations
 
 import json
+import platform
+import shutil
 from pathlib import Path
 from typing import Any
 
 CONFIG_FILENAME = "shasta.config.json"
+
+
+def _detect_python_cmd() -> str:
+    """Detect the correct Python command for this platform."""
+    if platform.system() == "Windows":
+        # On Windows, 'py' is the standard launcher
+        if shutil.which("py"):
+            return "py"
+        if shutil.which("python"):
+            return "python"
+    # Unix/macOS
+    if shutil.which("python3"):
+        return "python3"
+    if shutil.which("python"):
+        return "python"
+    return "python3"
 
 # Search upward from CWD to find config
 def _find_config() -> Path | None:
@@ -29,7 +47,7 @@ def load_config() -> dict[str, Any]:
     defaults = {
         "aws_profile": "",
         "aws_region": "us-east-1",
-        "python_cmd": "python3",
+        "python_cmd": _detect_python_cmd(),
         "company_name": "",
         "github_repos": [],
         "slack_webhook_url": "",

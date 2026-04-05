@@ -82,14 +82,11 @@ class AzureClient:
         Returns AzureAccountInfo with subscription and tenant details.
         """
         try:
-            from azure.mgmt.resource.subscriptions import SubscriptionClient
+            from azure.mgmt.subscription import SubscriptionClient
         except ImportError:
-            try:
-                from azure.mgmt.resource import SubscriptionClient
-            except ImportError:
-                raise AzureClientError(
-                    "Azure SDK not installed. Run: pip install -e '.[azure]'"
-                )
+            raise AzureClientError(
+                "Azure SDK not installed. Run: pip install -e '.[azure]'"
+            )
 
         try:
             sub_client = SubscriptionClient(self.credential)

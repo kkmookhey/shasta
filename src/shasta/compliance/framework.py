@@ -63,9 +63,11 @@ SOC2_CONTROLS: dict[str, SOC2Control] = {
         check_ids=[
             "iam-no-direct-policies",
             "iam-overprivileged-user",
+            "iam-role-trust-overpermissive",
             # Azure
             "azure-rbac-least-privilege",
             "azure-service-principal-hygiene",
+            "azure-pim-enabled",
         ],
         guidance="This control requires least-privilege access: users get only the permissions they need, managed through groups/roles, not direct policy attachments.",
     ),
@@ -91,12 +93,16 @@ SOC2_CONTROLS: dict[str, SOC2Control] = {
         check_ids=[
             "sg-no-unrestricted-ingress",
             "vpc-flow-logs-enabled",
+            "ec2-imdsv1-enabled",
             # Azure
             "azure-nsg-unrestricted-ingress",
             "azure-nsg-default-restricted",
             "azure-vnet-flow-logs",
             "azure-public-ip-exposure",
             "azure-sql-public-access",
+            "azure-app-service-https",
+            "azure-bastion-deployed",
+            "azure-aks-rbac",
         ],
         guidance="This control requires network segmentation: restrict inbound traffic, use private subnets/VNets, and enable flow logs for monitoring.",
     ),
@@ -110,6 +116,10 @@ SOC2_CONTROLS: dict[str, SOC2Control] = {
             "s3-ssl-only",
             "s3-versioning",
             "s3-public-access-block",
+            "s3-acl-not-public",
+            "ebs-snapshot-public",
+            "rds-snapshot-public",
+            "kms-key-rotation",
             # Azure
             "azure-storage-encryption",
             "azure-storage-https-only",

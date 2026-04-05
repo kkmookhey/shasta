@@ -193,6 +193,21 @@ class AWSClient:
     def account_info(self) -> AWSAccountInfo | None:
         return self._account_info
 
+    def get_enabled_regions(self) -> list[str]:
+        """Get all enabled AWS regions for this account."""
+        ec2 = self.client("ec2")
+        try:
+            response = ec2.describe_regions(
+                Filters=[{"Name": "opt-in-status", "Values": ["opt-in-not-required", "opted-in"]}]
+            )
+            return sorted(r["RegionName"] for r in response.get("Regions", []))
+        except ClientError:
+            return [self._region]
+
+    def for_region(self, region: str) -> "AWSClient":
+        """Create a new AWSClient for a different region, reusing the same profile."""
+        return AWSClient(profile_name=self._profile_name, region=region)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize connection info for evidence/reporting."""
         if not self._account_info:

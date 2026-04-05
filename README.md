@@ -131,7 +131,17 @@ Attack surface analysis that produces auditor-grade pen test evidence:
 - **Inspector network reachability** — integration with AWS Inspector for deep network analysis
 - **Risk prioritization** — public databases (critical) > management ports (high) > general exposure (medium)
 
-### 11. Integrations
+### 11. Risk Register (SOC 2 CC3.1)
+
+Automated risk management workflow required for SOC 2 Risk Assessment:
+- **Auto-seeds from scan findings** — failing checks automatically create risk items with pre-mapped likelihood, impact, and treatment plans (33 check-to-risk mappings across AWS + Azure)
+- **Risk scoring** — 3x3 likelihood/impact matrix (1-9 score, low/medium/high levels)
+- **Treatment tracking** — mitigate, accept, transfer, or avoid with documented plans
+- **Status workflow** — open → in_progress → accepted/resolved
+- **Auditor-grade report** — risk matrix visualization, detailed risk cards, treatment summary, reviewer sign-off section
+- **SQLite persistence** — full history tracking for audit trail
+
+### 12. Integrations
 
 | Integration | What It Does |
 |------------|-------------|
@@ -234,6 +244,8 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete setup guide including exact 
 | `/sbom` | Generate SBOM and scan for vulnerable/compromised packages | CycloneDX SBOM + vuln report |
 | `/threat-advisory` | Personalized threat intel filtered to your tech stack | Threat advisory (MD + Slack) |
 | `/pentest` | Automated security assessment — attack surface and exposure analysis | Security assessment report |
+| `/risk-register` | Create and manage risk register — auto-seeds from scan findings, tracks treatment | Risk register report |
+| `/iso27001` | Run ISO 27001:2022 Annex A gap analysis across AWS and Azure | ISO 27001 gap analysis report |
 
 ---
 
@@ -258,8 +270,7 @@ For a **<50 employee startup** pursuing **SOC 2 Type II Security**:
 
 - **Security awareness training** — use your company's e-learning portal
 - **Background checks** — HR process, not automatable
-- **Active risk register** — Shasta generates the policy template; you maintain the living document
-- **Active vendor inventory** — Shasta generates the policy; you track actual vendors
+- **Active vendor inventory** — Shasta generates the policy; you track actual vendors (risk register is now automated via `/risk-register`)
 - **Annual BCP/DR tabletop exercise** — process, not tooling
 - **Physical security** — N/A for cloud-native companies
 
@@ -480,7 +491,7 @@ In every case, the pattern was: error → diagnose → fix → continue. No erro
 | **Python modules** | 22 |
 | **Claude Code skills** | 11 user-facing |
 | **AWS services integrated** | 15 |
-| **Automated checks** | 40+ |
+| **Automated checks** | 72 (46 AWS, 26 Azure) |
 | **Terraform remediation templates** | 14 |
 | **Unit tests** | 9 |
 
@@ -564,7 +575,7 @@ Tier 2 and 3 used 4 parallel agents in isolated worktrees for maximum throughput
 | Python modules | 22 | 27 | **27** |
 | Claude Code skills | 11 | 15 | **15** |
 | Cloud services integrated | 15 (AWS) | 10 (Azure) | **25** |
-| Automated checks | 40+ | 60+ | **60+** |
+| Automated checks | 40+ | 72 | **72** |
 | Terraform templates | 14 | 36 | **36** |
 | Unit tests | 9 | 100 | **100** |
 | Compliance frameworks | 1 (SOC 2) | 2 (SOC 2 + ISO 27001) | **2** |
@@ -726,13 +737,19 @@ shasta/
 - [x] ~~Test coverage improvement~~ — from 9 to 100 tests covering scoring, drift, risk register, mapper
 
 ### Immediate Improvements
+- [x] ~~Multi-region scanning support~~ — scans all enabled AWS regions, IAM global + regional checks
+- [x] ~~Role trust policy analysis~~ — detects overpermissive `Principal: "*"` in IAM role trust policies
+- [x] ~~EBS snapshot public exposure~~ — flags snapshots shared with `all`
+- [x] ~~RDS snapshot public access~~ — flags publicly shared database snapshots
+- [x] ~~EC2 IMDSv1 detection~~ — flags instances vulnerable to SSRF (Capital One breach vector)
+- [x] ~~KMS key rotation~~ — flags customer-managed keys without annual rotation
+- [x] ~~S3 bucket ACL checks~~ — detects public-read/public-read-write ACLs
+- [x] ~~Azure App Service security~~ — HTTPS enforcement, TLS version, authentication
+- [x] ~~Azure Bastion detection~~ — checks if Bastion is deployed
+- [x] ~~Azure PIM status~~ — checks Privileged Identity Management activation
+- [x] ~~Azure AKS security~~ — RBAC, network policies, API server access
 - [ ] Vendor inventory management (active tracking, not just policy)
-- [ ] EBS snapshot encryption checks
-- [ ] RDS snapshot public access checks
-- [ ] Multi-region scanning support
-- [ ] Role trust policy analysis (overpermissive `Principal: "*"`)
 - [ ] Network ACL checks (AWS)
-- [ ] EC2 IMDSv1 detection (SSRF risk)
 
 ### Medium Term
 - [ ] GCP scanning modules

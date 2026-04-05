@@ -1,7 +1,7 @@
 """Shasta compliance scanner — orchestrates all check modules.
 
 Supports multi-cloud scanning (AWS + Azure) with unified compliance
-framework mapping.
+framework mapping and multi-region AWS scanning.
 """
 
 from __future__ import annotations
@@ -12,11 +12,24 @@ from shasta.compliance.mapper import enrich_findings_with_controls
 from shasta.evidence.models import CheckDomain, CloudProvider, Finding, ScanResult
 
 
+# Domains where AWS checks are global (not per-region)
+_AWS_GLOBAL_DOMAINS = {CheckDomain.IAM}
+
+# Domains where AWS checks are regional
+_AWS_REGIONAL_DOMAINS = {
+    CheckDomain.NETWORKING,
+    CheckDomain.STORAGE,
+    CheckDomain.ENCRYPTION,
+    CheckDomain.MONITORING,
+}
+
+
 def run_full_scan(
     client: Any = None,
     *,
     azure_client: Any = None,
     domains: list[CheckDomain] | None = None,
+    regions: list[str] | None = None,
     framework: str = "soc2",  # "soc2", "iso27001", or "both"
     include_github: bool = False,
     github_token: str | None = None,
@@ -30,10 +43,10 @@ def run_full_scan(
         client: AWSClient instance (positional for backward compatibility).
         azure_client: AzureClient instance for Azure scanning.
         domains: Which check domains to scan. Defaults to all.
+        regions: AWS regions to scan. None = configured region only.
+            ["all"] = all enabled regions. Or a specific list like
+            ["us-east-1", "eu-west-1"].
         framework: Which compliance framework to map findings to.
-            "soc2" -- SOC 2 Trust Service Criteria (default)
-            "iso27001" -- ISO 27001:2022 Annex A
-            "both" -- map to both frameworks simultaneously
         include_github: Whether to include GitHub checks.
         github_token: GitHub personal access token.
         github_repos: List of "owner/repo" strings to check.
@@ -72,13 +85,17 @@ def run_full_scan(
 
     # ----- AWS checks -----
     if client is not None:
-        scan.findings.extend(_run_aws_checks(client, domains))
+        if regions:
+            scan.findings.extend(_run_aws_checks_multi_region(client, domains, regions))
+            scan.region = ",".join(regions) if regions != ["all"] else "all"
+        else:
+            scan.findings.extend(_run_aws_checks(client, domains))
 
-        # AWS vulnerability checks (part of monitoring but separate runner)
-        if CheckDomain.MONITORING in domains:
-            from shasta.aws.vulnerabilities import run_all_vulnerability_checks
+            # Vulnerability checks (part of monitoring but separate runner)
+            if CheckDomain.MONITORING in domains:
+                from shasta.aws.vulnerabilities import run_all_vulnerability_checks
 
-            scan.findings.extend(run_all_vulnerability_checks(client))
+                scan.findings.extend(run_all_vulnerability_checks(client))
 
     # ----- Azure checks -----
     if azure_client is not None:
@@ -101,14 +118,13 @@ def run_full_scan(
     # Store multi-cloud info in scan details if both providers scanned
     if client is not None and azure_client is not None:
         scan.cloud_provider = CloudProvider.AWS  # Primary
-        # Both account IDs available via findings
 
     scan.complete()
     return scan
 
 
 def _run_aws_checks(client: Any, domains: list[CheckDomain]) -> list[Finding]:
-    """Run AWS-specific checks across requested domains."""
+    """Run AWS-specific checks across requested domains (single region)."""
     from shasta.aws.encryption import run_all_encryption_checks
     from shasta.aws.iam import run_all_iam_checks
     from shasta.aws.logging_checks import run_all_logging_checks
@@ -131,6 +147,56 @@ def _run_aws_checks(client: Any, domains: list[CheckDomain]) -> list[Finding]:
     return findings
 
 
+def _run_aws_checks_multi_region(
+    client: Any, domains: list[CheckDomain], regions: list[str]
+) -> list[Finding]:
+    """Run AWS checks across multiple regions.
+
+    IAM checks are global — run once with the original client.
+    Networking, storage, encryption, monitoring are regional — run per region.
+    """
+    from shasta.aws.encryption import run_all_encryption_checks
+    from shasta.aws.iam import run_all_iam_checks
+    from shasta.aws.logging_checks import run_all_logging_checks
+    from shasta.aws.networking import run_all_networking_checks
+    from shasta.aws.storage import run_all_storage_checks
+    from shasta.aws.vulnerabilities import run_all_vulnerability_checks
+
+    aws_domain_runners = {
+        CheckDomain.NETWORKING: run_all_networking_checks,
+        CheckDomain.STORAGE: run_all_storage_checks,
+        CheckDomain.ENCRYPTION: run_all_encryption_checks,
+        CheckDomain.MONITORING: run_all_logging_checks,
+    }
+
+    findings: list[Finding] = []
+
+    # Resolve "all" to actual region list
+    if regions == ["all"]:
+        regions = client.get_enabled_regions()
+
+    # Global checks (IAM) — run once
+    if CheckDomain.IAM in domains:
+        findings.extend(run_all_iam_checks(client))
+
+    # Regional checks — run per region
+    regional_domains = [d for d in domains if d in _AWS_REGIONAL_DOMAINS]
+    for region_name in regions:
+        regional_client = client.for_region(region_name)
+        regional_client.validate_credentials()
+
+        for domain in regional_domains:
+            runner = aws_domain_runners.get(domain)
+            if runner:
+                findings.extend(runner(regional_client))
+
+        # Vulnerability checks per region
+        if CheckDomain.MONITORING in domains:
+            findings.extend(run_all_vulnerability_checks(regional_client))
+
+    return findings
+
+
 def _run_azure_checks(azure_client: Any, domains: list[CheckDomain]) -> list[Finding]:
     """Run Azure-specific checks across requested domains."""
     from shasta.azure.encryption import run_all_azure_encryption_checks
@@ -139,13 +205,21 @@ def _run_azure_checks(azure_client: Any, domains: list[CheckDomain]) -> list[Fin
     from shasta.azure.networking import run_all_azure_networking_checks
     from shasta.azure.storage import run_all_azure_storage_checks
 
-    azure_domain_runners = {
+    azure_domain_runners: dict = {
         CheckDomain.IAM: run_all_azure_iam_checks,
         CheckDomain.NETWORKING: run_all_azure_networking_checks,
         CheckDomain.STORAGE: run_all_azure_storage_checks,
         CheckDomain.ENCRYPTION: run_all_azure_encryption_checks,
         CheckDomain.MONITORING: run_all_azure_monitoring_checks,
     }
+
+    # Add COMPUTE domain if available
+    try:
+        from shasta.azure.compute import run_all_azure_compute_checks
+
+        azure_domain_runners[CheckDomain.COMPUTE] = run_all_azure_compute_checks
+    except ImportError:
+        pass
 
     findings: list[Finding] = []
     for domain in domains:

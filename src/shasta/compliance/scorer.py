@@ -36,13 +36,19 @@ def calculate_score(findings: list[Finding]) -> ComplianceScore:
     failing = sum(1 for c in control_summary.values() if c["overall_status"] == "fail")
     partial = sum(1 for c in control_summary.values() if c["overall_status"] == "partial")
     not_assessed = sum(1 for c in control_summary.values() if c["overall_status"] == "not_assessed")
-    requires_policy = sum(1 for c in control_summary.values() if c["overall_status"] == "requires_policy")
+    requires_policy = sum(
+        1 for c in control_summary.values() if c["overall_status"] == "requires_policy"
+    )
 
     # Score based on assessed controls only (partial counts as half)
     assessed = passing + failing + partial
     if assessed > 0:
         score = ((passing + partial * 0.5) / assessed) * 100
+    elif not_assessed > 0 or requires_policy > 0:
+        # No assessed controls but controls exist — nothing failed, not a failure
+        score = 100.0
     else:
+        # Truly no controls at all (empty framework)
         score = 0.0
 
     grade = _score_to_grade(score)

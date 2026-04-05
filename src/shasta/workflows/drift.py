@@ -48,9 +48,43 @@ class DriftReport:
     trend: str = ""  # "improving", "degrading", "stable"
 
 
-def detect_drift(current: ScanResult, previous: ScanResult) -> DriftReport:
-    """Compare two scans and produce a drift report."""
+def detect_drift(current: ScanResult, previous: ScanResult | None) -> DriftReport:
+    """Compare two scans and produce a drift report.
+
+    If previous is None (first scan), returns a baseline report with no drift.
+    """
     current_score = calculate_score(current.findings)
+
+    if previous is None:
+        return DriftReport(
+            current_scan_id=current.id,
+            previous_scan_id="none",
+            current_date=current.started_at.isoformat()
+            if isinstance(current.started_at, datetime)
+            else str(current.started_at),
+            previous_date="N/A (first scan)",
+            current_score=current_score,
+            previous_score=ComplianceScore(
+                total_controls=0,
+                passing=0,
+                failing=0,
+                partial=0,
+                not_assessed=0,
+                requires_policy=0,
+                score_percentage=0.0,
+                grade="N/A",
+                total_findings=0,
+                findings_passed=0,
+                findings_failed=0,
+                findings_partial=0,
+            ),
+            score_delta=current_score.score_percentage,
+            new_findings=[],
+            resolved_findings=[],
+            unchanged_findings=0,
+            trend="initial",
+        )
+
     previous_score = calculate_score(previous.findings)
     score_delta = current_score.score_percentage - previous_score.score_percentage
 
@@ -74,27 +108,31 @@ def detect_drift(current: ScanResult, previous: ScanResult) -> DriftReport:
     new_findings = []
     for fp, f in current_failed.items():
         if fp not in previous_failed:
-            new_findings.append(DriftFinding(
-                check_id=f.check_id,
-                title=f.title,
-                resource_id=f.resource_id,
-                severity=f.severity.value,
-                soc2_controls=f.soc2_controls,
-                change_type="new",
-            ))
+            new_findings.append(
+                DriftFinding(
+                    check_id=f.check_id,
+                    title=f.title,
+                    resource_id=f.resource_id,
+                    severity=f.severity.value,
+                    soc2_controls=f.soc2_controls,
+                    change_type="new",
+                )
+            )
 
     # Resolved findings = in previous but not in current
     resolved_findings = []
     for fp, f in previous_failed.items():
         if fp not in current_failed:
-            resolved_findings.append(DriftFinding(
-                check_id=f.check_id,
-                title=f.title,
-                resource_id=f.resource_id,
-                severity=f.severity.value,
-                soc2_controls=f.soc2_controls,
-                change_type="resolved",
-            ))
+            resolved_findings.append(
+                DriftFinding(
+                    check_id=f.check_id,
+                    title=f.title,
+                    resource_id=f.resource_id,
+                    severity=f.severity.value,
+                    soc2_controls=f.soc2_controls,
+                    change_type="resolved",
+                )
+            )
 
     # Unchanged
     unchanged = len(set(current_failed.keys()) & set(previous_failed.keys()))
@@ -110,8 +148,12 @@ def detect_drift(current: ScanResult, previous: ScanResult) -> DriftReport:
     return DriftReport(
         current_scan_id=current.id,
         previous_scan_id=previous.id,
-        current_date=current.started_at.isoformat() if isinstance(current.started_at, datetime) else str(current.started_at),
-        previous_date=previous.started_at.isoformat() if isinstance(previous.started_at, datetime) else str(previous.started_at),
+        current_date=current.started_at.isoformat()
+        if isinstance(current.started_at, datetime)
+        else str(current.started_at),
+        previous_date=previous.started_at.isoformat()
+        if isinstance(previous.started_at, datetime)
+        else str(previous.started_at),
         current_score=current_score,
         previous_score=previous_score,
         score_delta=round(score_delta, 1),
@@ -146,7 +188,9 @@ def format_drift_summary(report: DriftReport) -> str:
         lines.append(f"## New Findings ({len(report.new_findings)} regressions)")
         lines.append("")
         for f in report.new_findings:
-            lines.append(f"- **{f.severity.upper()}** | {f.title} | `{f.resource_id}` | SOC2: {', '.join(f.soc2_controls)}")
+            lines.append(
+                f"- **{f.severity.upper()}** | {f.title} | `{f.resource_id}` | SOC2: {', '.join(f.soc2_controls)}"
+            )
         lines.append("")
 
     if report.resolved_findings:

@@ -38,19 +38,50 @@ def calculate_iso27001_score(findings: list[Finding]) -> ISO27001Score:
     failing = sum(1 for c in control_summary.values() if c["overall_status"] == "fail")
     partial = sum(1 for c in control_summary.values() if c["overall_status"] == "partial")
     not_assessed = sum(1 for c in control_summary.values() if c["overall_status"] == "not_assessed")
-    requires_policy = sum(1 for c in control_summary.values() if c["overall_status"] == "requires_policy")
+    requires_policy = sum(
+        1 for c in control_summary.values() if c["overall_status"] == "requires_policy"
+    )
 
     assessed = passing + failing + partial
-    score = ((passing + partial * 0.5) / assessed * 100) if assessed > 0 else 0.0
+    if assessed > 0:
+        score = (passing + partial * 0.5) / assessed * 100
+    elif not_assessed > 0 or requires_policy > 0:
+        score = 100.0
+    else:
+        score = 0.0
     grade = _score_to_grade(score)
 
     # By theme
-    org_pass = sum(1 for c in control_summary.values() if c["theme"] == "Organizational" and c["overall_status"] == "pass")
-    org_fail = sum(1 for c in control_summary.values() if c["theme"] == "Organizational" and c["overall_status"] == "fail")
-    ppl_pass = sum(1 for c in control_summary.values() if c["theme"] == "People" and c["overall_status"] == "pass")
-    ppl_fail = sum(1 for c in control_summary.values() if c["theme"] == "People" and c["overall_status"] == "fail")
-    tech_pass = sum(1 for c in control_summary.values() if c["theme"] == "Technological" and c["overall_status"] == "pass")
-    tech_fail = sum(1 for c in control_summary.values() if c["theme"] == "Technological" and c["overall_status"] == "fail")
+    org_pass = sum(
+        1
+        for c in control_summary.values()
+        if c["theme"] == "Organizational" and c["overall_status"] == "pass"
+    )
+    org_fail = sum(
+        1
+        for c in control_summary.values()
+        if c["theme"] == "Organizational" and c["overall_status"] == "fail"
+    )
+    ppl_pass = sum(
+        1
+        for c in control_summary.values()
+        if c["theme"] == "People" and c["overall_status"] == "pass"
+    )
+    ppl_fail = sum(
+        1
+        for c in control_summary.values()
+        if c["theme"] == "People" and c["overall_status"] == "fail"
+    )
+    tech_pass = sum(
+        1
+        for c in control_summary.values()
+        if c["theme"] == "Technological" and c["overall_status"] == "pass"
+    )
+    tech_fail = sum(
+        1
+        for c in control_summary.values()
+        if c["theme"] == "Technological" and c["overall_status"] == "fail"
+    )
 
     return ISO27001Score(
         total_controls=total,

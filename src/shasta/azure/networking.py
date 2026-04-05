@@ -227,16 +227,18 @@ def check_nsg_default_restricted(
             # Check if there's a custom allow-all rule that overrides Azure's default deny
             has_allow_all = False
             for rule in nsg.security_rules or []:
-                if (
-                    rule.direction == "Inbound"
-                    and rule.access == "Allow"
-                    and (
-                        rule.source_address_prefix == "*"
-                        or rule.source_address_prefix == "0.0.0.0/0"
-                    )
-                    and rule.destination_port_range == "*"
-                    and rule.protocol == "*"
-                ):
+                if rule.direction != "Inbound" or rule.access != "Allow":
+                    continue
+                if rule.destination_port_range != "*" or rule.protocol != "*":
+                    continue
+
+                # Check both single prefix and prefix list
+                source = rule.source_address_prefix or ""
+                source_list = rule.source_address_prefixes or []
+                source_unrestricted = _is_unrestricted_source(source) or any(
+                    _is_unrestricted_source(p) for p in source_list
+                )
+                if source_unrestricted:
                     has_allow_all = True
                     break
 

@@ -16,6 +16,26 @@ from shasta.aws.client import AWSClient
 from shasta.evidence.models import CheckDomain, ComplianceStatus, Finding, Severity
 
 
+def _guardduty_severity(severity_counts: dict[str, Any]) -> Severity:
+    """Determine finding severity from GuardDuty severity counts.
+
+    GuardDuty COUNT_BY_SEVERITY returns keys as numeric strings (e.g., "8.0")
+    representing severity ranges: 7.0-8.9 = High, 4.0-6.9 = Medium, 1.0-3.9 = Low.
+    """
+    for key, count in severity_counts.items():
+        if int(count) == 0:
+            continue
+        try:
+            val = float(key)
+            if val >= 7.0:
+                return Severity.HIGH
+        except (ValueError, TypeError):
+            # Key might be a string like "HIGH" in some API versions
+            if str(key).upper() in ("HIGH", "CRITICAL"):
+                return Severity.HIGH
+    return Severity.MEDIUM
+
+
 def run_all_logging_checks(client: AWSClient) -> list[Finding]:
     """Run all logging and monitoring compliance checks."""
     findings: list[Finding] = []
@@ -111,7 +131,13 @@ def check_cloudtrail(client: AWSClient, account_id: str, region: str) -> list[Fi
                     account_id=account_id,
                     remediation=f"Fix CloudTrail '{trail_name}': " + "; ".join(issues),
                     soc2_controls=["CC7.1", "CC8.1"],
-                    details={"trail_name": trail_name, "issues": issues, "trail_config": {k: v for k, v in trail.items() if isinstance(v, (str, bool))}},
+                    details={
+                        "trail_name": trail_name,
+                        "issues": issues,
+                        "trail_config": {
+                            k: v for k, v in trail.items() if isinstance(v, (str, bool))
+                        },
+                    },
                 )
             )
         else:
@@ -128,7 +154,12 @@ def check_cloudtrail(client: AWSClient, account_id: str, region: str) -> list[Fi
                     region=region,
                     account_id=account_id,
                     soc2_controls=["CC7.1", "CC8.1"],
-                    details={"trail_name": trail_name, "trail_config": {k: v for k, v in trail.items() if isinstance(v, (str, bool))}},
+                    details={
+                        "trail_name": trail_name,
+                        "trail_config": {
+                            k: v for k, v in trail.items() if isinstance(v, (str, bool))
+                        },
+                    },
                 )
             )
 
@@ -196,8 +227,12 @@ def check_guardduty(client: AWSClient, account_id: str, region: str) -> list[Fin
                 Finding(
                     check_id="guardduty-enabled",
                     title="GuardDuty is enabled and active",
-                    description=f"GuardDuty is enabled (detector {detector_id}). " +
-                        (f"There are {total_findings} active finding(s) that should be reviewed." if total_findings > 0 else "No active findings."),
+                    description=f"GuardDuty is enabled (detector {detector_id}). "
+                    + (
+                        f"There are {total_findings} active finding(s) that should be reviewed."
+                        if total_findings > 0
+                        else "No active findings."
+                    ),
                     severity=Severity.INFO,
                     status=ComplianceStatus.PASS,
                     domain=CheckDomain.MONITORING,
@@ -206,7 +241,12 @@ def check_guardduty(client: AWSClient, account_id: str, region: str) -> list[Fin
                     region=region,
                     account_id=account_id,
                     soc2_controls=["CC7.1", "CC7.2"],
-                    details={"detector_id": detector_id, "status": detector_status, "active_findings": total_findings, "severity_counts": severity_counts},
+                    details={
+                        "detector_id": detector_id,
+                        "status": detector_status,
+                        "active_findings": total_findings,
+                        "severity_counts": severity_counts,
+                    },
                 )
             )
 
@@ -217,7 +257,7 @@ def check_guardduty(client: AWSClient, account_id: str, region: str) -> list[Fin
                         check_id="guardduty-no-active-findings",
                         title=f"GuardDuty has {total_findings} active finding(s)",
                         description=f"GuardDuty has detected {total_findings} potential threat(s). Active findings require investigation and response.",
-                        severity=Severity.HIGH if any(float(k) >= 7.0 for k in severity_counts.keys()) else Severity.MEDIUM,
+                        severity=_guardduty_severity(severity_counts),
                         status=ComplianceStatus.FAIL,
                         domain=CheckDomain.MONITORING,
                         resource_type="AWS::GuardDuty::Detector",
@@ -226,7 +266,10 @@ def check_guardduty(client: AWSClient, account_id: str, region: str) -> list[Fin
                         account_id=account_id,
                         remediation="Review and address all GuardDuty findings. Archive resolved findings after investigation.",
                         soc2_controls=["CC7.2"],
-                        details={"total_findings": total_findings, "severity_counts": severity_counts},
+                        details={
+                            "total_findings": total_findings,
+                            "severity_counts": severity_counts,
+                        },
                     )
                 )
         else:
@@ -304,7 +347,9 @@ def check_aws_config(client: AWSClient, account_id: str, region: str) -> list[Fi
 
         # Check if recording is active
         try:
-            statuses = config.describe_configuration_recorder_status()["ConfigurationRecordersStatus"]
+            statuses = config.describe_configuration_recorder_status()[
+                "ConfigurationRecordersStatus"
+            ]
             recorder_status = next((s for s in statuses if s.get("name") == recorder_name), {})
             is_recording = recorder_status.get("recording", False)
         except ClientError:
@@ -333,7 +378,13 @@ def check_aws_config(client: AWSClient, account_id: str, region: str) -> list[Fi
                     account_id=account_id,
                     remediation=f"Fix Config recorder: " + "; ".join(issues),
                     soc2_controls=["CC7.1", "CC8.1"],
-                    details={"recorder_name": recorder_name, "issues": issues, "recording": is_recording, "all_supported": all_supported, "include_global": include_global},
+                    details={
+                        "recorder_name": recorder_name,
+                        "issues": issues,
+                        "recording": is_recording,
+                        "all_supported": all_supported,
+                        "include_global": include_global,
+                    },
                 )
             )
         else:
@@ -350,7 +401,12 @@ def check_aws_config(client: AWSClient, account_id: str, region: str) -> list[Fi
                     region=region,
                     account_id=account_id,
                     soc2_controls=["CC7.1", "CC8.1"],
-                    details={"recorder_name": recorder_name, "recording": True, "all_supported": True, "include_global": True},
+                    details={
+                        "recorder_name": recorder_name,
+                        "recording": True,
+                        "all_supported": True,
+                        "include_global": True,
+                    },
                 )
             )
 

@@ -97,7 +97,7 @@ def _check_storage_encryption(account, name, acct_id, rg, sub_id, region) -> lis
     encryption = account.encryption
     min_tls = account.minimum_tls_version or "TLS1_0"
 
-    if min_tls in ("TLS1_2",):
+    if min_tls in ("TLS1_2", "TLS1_3"):
         return [
             Finding(
                 check_id="azure-storage-encryption",

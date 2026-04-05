@@ -456,37 +456,125 @@ Things that went wrong during this build:
 - **Inspector API** — `SEVERITY` is not a valid aggregation type. Switched to `ACCOUNT` aggregation.
 - **Working directory drift** — Terraform `cd` shifted the CWD. Affected subsequent file reads.
 
+**Session 2 (Azure + quality hardening):**
+- **Microsoft Graph SDK is async-only** — `graph.users.get()` returns a coroutine, not a result. Created `graph_call()` wrapper with persistent event loop. First attempt used `asyncio.run()` per call, which killed the HTTP connection pool between calls. Fixed by reusing a single event loop.
+- **Azure deprecated NSG flow logs** — Azure retired NSG flow log creation after June 2025. Terraform `azurerm_network_watcher_flow_log` failed. Adapted test environment to skip flow logs (VNet flow logs are the replacement).
+- **Wrong Azure SDK package names** — `azure-mgmt-resource-subscriptions` doesn't exist (it's `azure-mgmt-subscription`). `SubscriptionClient` moved from `azure.mgmt.resource` to `azure.mgmt.subscription`. `azure-mgmt-sql>=4.0.0` is pre-release only (relaxed to `>=3.0.0`). All three discovered at runtime and fixed.
+- **Stale Python package cache** — After editing `scorer.py`, Python kept loading the old version from `C:\Users\kkmookhey\shasta\` instead of `E:\Projects\Vanta\`. Required `pip install -e .` to refresh the editable install.
+- **Scorer returned F on clean scans** — Discovered during the self-audit: empty findings → `assessed=0` → `score=0.0` → Grade F. The fix was nuanced: zero assessed controls with non-zero `not_assessed` should return 100%, not 0%.
+
 In every case, the pattern was: error → diagnose → fix → continue. No error required starting over. The AI's ability to read error messages, understand root causes, and adapt immediately is the core advantage of vibe coding.
 
 ---
 
 ## Build Metrics
 
-### Session Statistics
+### Session 1: AWS Platform Build (~3 hours)
 
 | Metric | Value |
 |--------|-------|
-| **Total conversation turns** | ~36 (18 human, 18 AI) |
+| **Conversation turns** | ~36 (18 human, 18 AI) |
 | **Wall-clock time** | ~3 hours |
 | **Lines of code written** | 10,537 |
 | **Files created** | 67 |
 | **Python modules** | 22 |
-| **Claude Code skills** | 15 user-facing (in `.claude/skills/`) |
-| **Terraform resources deployed** | ~55 (test env + monitoring) |
-| **AWS services integrated** | 15 (IAM, EC2, S3, RDS, Lambda, CloudTrail, GuardDuty, Config, Inspector, SecurityHub, EventBridge, SNS, KMS, ECS, CloudWatch) |
-| **Azure services integrated** | 10 (Entra ID, Network, Storage, Compute, SQL, Key Vault, Monitor, Defender, Policy, Authorization) |
-| **SOC 2 controls covered** | 13 (8 automated + 5 policy-only) |
-| **Automated checks** | 60+ (40+ AWS, 22 Azure) |
-| **Control tests** | 17 |
-| **Policy templates** | 8 |
-| **Terraform remediation templates** | 36 (14 AWS + 22 Azure) |
-| **External APIs integrated** | 5 (NVD, CISA KEV, OSV.dev, GitHub Advisory, GitHub API) |
-| **Unit tests** | 100 (passing) |
+| **Claude Code skills** | 11 user-facing |
+| **AWS services integrated** | 15 |
+| **Automated checks** | 40+ |
+| **Terraform remediation templates** | 14 |
+| **Unit tests** | 9 |
+
+### Session 2: Azure + Quality Hardening (~4 hours)
+
+Session 2 demonstrated a different vibe coding pattern: **extending an existing system rather than building from scratch**. The conversation had four distinct phases.
+
+**Phase 1 — Azure Planning & Architecture (Turns 1–4)**
+The human asked to "build similar support for SOC 2 and ISO 27001 for Azure environments." Claude entered plan mode, launched 3 parallel exploration agents to understand the existing AWS patterns, then designed a phased implementation plan with 22 Azure checks mapped to all SOC 2 and ISO 27001 controls. The human reviewed the plan, added a requirement to "build it half secure, half insecure as you did the AWS one" for a test environment, and provided their Azure credentials.
+
+**Phase 2 — Azure Implementation (Turns 5–10)**
+Built in rapid succession:
+- Azure test environment (Terraform) with intentionally secure + insecure resources
+- `AzureClient` with `DefaultAzureCredential`, Graph API async wrapper, service discovery
+- 22 check functions across 5 modules (IAM, networking, storage, encryption, monitoring)
+- Multi-cloud scanner refactor (backward-compatible with existing AWS skills)
+- All SOC 2 and ISO 27001 control definitions updated with Azure check_ids
+- `/connect-azure` skill and updated `/scan` skill
+
+Hit two issues: Microsoft Graph SDK is async-only (required `graph_call()` event loop wrapper), and Azure deprecated NSG flow logs after June 2025 (adapted Terraform accordingly). Also discovered 3 dependency issues at runtime (`azure-mgmt-subscription` package name, `SubscriptionClient` import path, `azure-mgmt-sql` pre-release version) — all fixed and shipped.
+
+**Phase 3 — The Independent Audit (Turn 11)**
+This was the most valuable turn in Session 2. The human asked: *"Analyze the entire project code and as an independent expert in software engineering as well as cloud security, provide a detailed report on the gaps and improvement areas."*
+
+Claude launched 3 parallel audit agents examining:
+1. All AWS check implementations (7 files) for logic errors, pagination issues, missing checks
+2. All Azure implementations + core infrastructure for SDK issues, error handling, security
+3. Compliance frameworks, reports, remediation, integrations, and test coverage
+
+The audit identified **3 critical bugs**, **12 high-severity issues**, and significant gaps:
+
+| Finding | Severity | Impact |
+|---------|----------|--------|
+| Scorer returns 0%/Grade F on empty scans | **Critical** | Founders see failing grade on clean environments |
+| Drift detection crashes on first run (previous=None) | **Critical** | Feature unusable for new users |
+| GuardDuty severity tries float("HIGH") → ValueError | **Critical** | Crashes any account with GuardDuty findings |
+| Azure TLS 1.3 flagged as insecure | **High** | False positive on modern storage accounts |
+| NSG check misses source_address_prefixes list form | **High** | Allow-all rules bypass detection |
+| Zero Azure entries in FINDING_TO_RISK | **High** | Risk register empty for Azure scans |
+| AWS pagination missing in 5 API calls | **High** | Truncated results → false PASS findings |
+| Test coverage at 1.9% (9 tests) | **High** | Business logic bugs undetected |
+| No Azure evidence collectors | **High** | Azure findings exist but evidence can't be collected |
+| No Azure remediation templates | **High** | No Terraform fix guidance for Azure findings |
+
+The audit also cataloged ~20 missing AWS checks (role trust policies, Network ACLs, EBS snapshot exposure, KMS key rotation, etc.) and ~6 missing Azure checks (Bastion, App Service, PIM, AKS).
+
+This self-assessment prompt — asking the AI to critique its own work as an independent expert — proved as valuable in Session 2 as it was in Session 1. Both times, it prevented premature "done" by surfacing real gaps.
+
+**Phase 4 — Fix Implementation (Turns 12–14)**
+Fixes were organized into tiers and implemented bottom-up:
+
+*Tier 1 (6 critical/high fixes):* Scorer edge case, drift null check, GuardDuty severity parser, TLS 1.3, NSG prefixes list, Azure risk mappings (21 entries).
+
+*Tier 2 (4 systemic fixes):* 91 new tests (100 total) covering scorer, drift, risk register, ISO 27001 scoring, and SOC 2 mapper. AWS pagination fixed in 5 API calls. Error handling standardized (bare `except: pass` → specific `ClientError` → NOT_ASSESSED). AzureClient event loop leak fixed with `close()` + context manager.
+
+*Tier 3 (5 feature gaps):* Azure evidence collectors (8 snapshot functions). Azure remediation Terraform templates (22 `azurerm` templates). Azure access review workflow. Pydantic config validation (UUIDs, HTTPS URLs). Database schema improvements (initial `cloud_provider` column, `ON DELETE CASCADE`, new indexes).
+
+Tier 2 and 3 used 4 parallel agents in isolated worktrees for maximum throughput.
+
+| Metric | Value |
+|--------|-------|
+| **Conversation turns** | ~28 (14 human, 14 AI) |
+| **Wall-clock time** | ~4 hours |
+| **Lines of code added** | ~7,000 |
+| **New files created** | 16 |
+| **New Python modules** | 5 (azure client, 5 check modules, evidence collector, access review) |
+| **New Azure checks** | 22 |
+| **New Terraform templates** | 22 (Azure) |
+| **New tests written** | 91 |
+| **Bugs found by self-audit** | 3 critical, 12 high, 12 medium |
+| **Bugs fixed** | All critical + high + medium |
+
+### Cumulative Totals (Both Sessions)
+
+| Metric | Session 1 | Session 2 | **Total** |
+|--------|-----------|-----------|-----------|
+| Wall-clock time | ~3 hours | ~4 hours | **~7 hours** |
+| Conversation turns | ~36 | ~28 | **~64** |
+| Lines of code | 10,537 | ~7,000 | **~17,500** |
+| Files | 67 | 16 new + 36 modified | **83** |
+| Python modules | 22 | 27 | **27** |
+| Claude Code skills | 11 | 15 | **15** |
+| Cloud services integrated | 15 (AWS) | 10 (Azure) | **25** |
+| Automated checks | 40+ | 60+ | **60+** |
+| Terraform templates | 14 | 36 | **36** |
+| Unit tests | 9 | 100 | **100** |
+| Compliance frameworks | 1 (SOC 2) | 2 (SOC 2 + ISO 27001) | **2** |
+| Cloud providers | 1 (AWS) | 2 (AWS + Azure) | **2** |
 
 ### Token Consumption Estimate
 
 | Phase | Estimated Input Tokens | Estimated Output Tokens |
 |-------|----------------------|------------------------|
+| **Session 1: AWS Platform** | | |
 | Planning & Architecture | ~15,000 | ~25,000 |
 | Phase 1-2 (Foundation + IAM) | ~20,000 | ~35,000 |
 | Phase 3-4 (Full scan + Reports) | ~25,000 | ~45,000 |
@@ -494,17 +582,24 @@ In every case, the pattern was: error → diagnose → fix → continue. No erro
 | Self-assessment + Phase 7 | ~30,000 | ~60,000 |
 | Phase 8 (SBOM + Threat Intel + Pen Test) | ~15,000 | ~50,000 |
 | Packaging + README | ~10,000 | ~30,000 |
-| **Total (estimated)** | **~135,000** | **~295,000** |
-| **Grand total (estimated)** | **~430,000 tokens** | |
+| **Session 2: Azure + Quality** | | |
+| Azure planning + architecture | ~25,000 | ~40,000 |
+| Azure implementation (checks, scanner, skills) | ~30,000 | ~80,000 |
+| Independent security/engineering audit | ~40,000 | ~60,000 |
+| Tier 1-3 bug fixes + feature gaps | ~35,000 | ~90,000 |
+| Documentation + deployment | ~10,000 | ~20,000 |
+| **Total (estimated)** | **~275,000** | **~585,000** |
+| **Grand total (estimated)** | **~860,000 tokens** | |
 
-*Note: These are estimates based on conversation length and code volume. Actual token counts may vary. The session used the Claude Opus 4.6 model with 1M context window.*
+*Note: Session 2 used significantly more tokens due to the 3-agent parallel audit and 4-agent parallel fix implementation. The Opus 4.6 model with 1M context handled the full codebase analysis without compression.*
 
 ### Cost Perspective
 
-At ~430K tokens on Claude Opus, the API cost for this entire build would be roughly $15-25. Compare this to:
+At ~860K tokens on Claude Opus across both sessions, the API cost for this entire build would be roughly $30-50. Compare this to:
 - Vanta annual subscription: $10,000-30,000/year
 - Hiring a compliance consultant: $150-300/hour
-- Building this manually: 2-4 engineer-months
+- Building this manually: 4-6 engineer-months
+- The Azure extension alone (Session 2) would be ~2-3 engineer-months of work
 
 ---
 
@@ -593,11 +688,18 @@ shasta/
 │   └── azure-test-env/                    # Azure test environment
 │       └── main.tf                        # Azure test resources (compliant + non-compliant)
 │
-├── tests/                                 # pytest test suite
+├── tests/                                 # pytest test suite (100 tests)
 │   ├── conftest.py
-│   └── test_aws/
-│       ├── test_client.py                 # AWS client tests (moto)
-│       └── test_models.py                 # Data model + DB tests
+│   ├── test_aws/
+│   │   ├── test_client.py                 # AWS client tests (moto)
+│   │   └── test_models.py                 # Data model + DB tests
+│   ├── test_compliance/
+│   │   ├── test_scorer.py                 # SOC 2 scoring edge cases
+│   │   ├── test_iso27001_scorer.py        # ISO 27001 scoring + theme counts
+│   │   └── test_mapper.py                 # Control enrichment + aggregation
+│   └── test_workflows/
+│       ├── test_drift.py                  # Drift detection (4 scenarios)
+│       └── test_risk_register.py          # Risk calculation + auto-seeding
 │
 └── data/                                  # Runtime data (gitignored)
     ├── shasta.db                          # SQLite database
@@ -613,14 +715,24 @@ shasta/
 
 ## What's Next
 
+### Completed (Session 1 + Session 2)
+- [x] ~~Risk register workflow~~ — auto-seeds from findings, tracks treatment, auditor-grade report
+- [x] ~~ISO 27001 framework mapping~~ — 35 controls across 4 themes, dual-framework scoring
+- [x] ~~Azure scanning modules~~ — 22 checks across 5 domains, full SOC 2 + ISO 27001 mapping
+- [x] ~~Azure remediation templates~~ — 22 Terraform azurerm templates with founder-friendly guidance
+- [x] ~~Azure evidence collection~~ — 8 config snapshot types for audit trail
+- [x] ~~Azure access review~~ — Entra ID user enumeration, RBAC mapping, issue flagging
+- [x] ~~Independent code audit + bug fixes~~ — 3 critical + 12 high severity bugs found and fixed
+- [x] ~~Test coverage improvement~~ — from 9 to 100 tests covering scoring, drift, risk register, mapper
+
 ### Immediate Improvements
-- [x] ~~Risk register workflow~~ (completed)
-- [x] ~~ISO 27001 framework mapping~~ (completed)
-- [x] ~~Azure scanning modules~~ (completed — 22 checks across 5 domains)
 - [ ] Vendor inventory management (active tracking, not just policy)
 - [ ] EBS snapshot encryption checks
 - [ ] RDS snapshot public access checks
 - [ ] Multi-region scanning support
+- [ ] Role trust policy analysis (overpermissive `Principal: "*"`)
+- [ ] Network ACL checks (AWS)
+- [ ] EC2 IMDSv1 detection (SSRF risk)
 
 ### Medium Term
 - [ ] GCP scanning modules
@@ -628,6 +740,7 @@ shasta/
 - [ ] Security questionnaire auto-fill from evidence
 - [ ] Employee onboarding/offboarding tracking
 - [ ] Trust center page generation
+- [ ] Azure Bastion / App Service / AKS security checks
 
 ### Long Term
 - [ ] Multi-account AWS Organizations support
@@ -644,4 +757,4 @@ Private repository. Contact kkmookhey for access.
 
 ---
 
-*Built with Claude Code (Opus 4.6) in a single session. The entire platform — from architecture to deployment — was created through human-AI collaboration, demonstrating that vibe coding can produce production-quality security tooling when guided by domain expertise.*
+*Built with Claude Code (Opus 4.6) across two sessions (~7 hours total). The entire multi-cloud compliance platform — from architecture to deployment to independent audit and hardening — was created through human-AI collaboration, demonstrating that vibe coding can produce production-quality security tooling when guided by domain expertise. The self-audit pattern (asking the AI to critique its own work) proved essential in both sessions for catching real bugs and preventing false confidence.*

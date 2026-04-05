@@ -130,7 +130,10 @@ def _evaluate_branch_protection(repo: str, branch: str, protection: dict) -> lis
                     region="github.com",
                     account_id="github",
                     soc2_controls=["CC8.1"],
-                    details={"required_reviewers": required_count, "dismiss_stale": pr_reviews.get("dismiss_stale_reviews", False)},
+                    details={
+                        "required_reviewers": required_count,
+                        "dismiss_stale": pr_reviews.get("dismiss_stale_reviews", False),
+                    },
                 )
             )
         else:

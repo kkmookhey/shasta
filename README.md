@@ -243,15 +243,16 @@ For a **<50 employee startup** pursuing **SOC 2 Type II Security**:
 
 | Category | Coverage | Method |
 |----------|----------|--------|
-| Technical AWS controls | ~85% | 40+ automated checks across 5 domains |
+| Technical cloud controls | ~90% | 60+ automated checks across AWS and Azure (5 domains each) |
 | Policy/process controls | ~80% | 8 generated policy documents |
-| Continuous monitoring | ~90% | 12 Config Rules + 6 EventBridge rules + GuardDuty + Inspector |
-| Audit evidence | ~80% | Control tests, evidence snapshots, access reviews, reports |
+| Continuous monitoring | ~90% | 12 Config Rules + 6 EventBridge rules + GuardDuty + Inspector + Azure Defender + Azure Policy |
+| Audit evidence | ~85% | Control tests, evidence snapshots (AWS + Azure), access reviews, reports |
 | Vulnerability management | ~85% | Inspector + SBOM + OSV.dev + CISA KEV |
 | Supply chain security | ~80% | SBOM discovery + known-compromised DB + live scanning |
-| Change management | ~75% | GitHub integration + CloudTrail + Config |
+| Change management | ~80% | GitHub integration + CloudTrail + Config + Azure Activity Log |
+| Remediation guidance | ~90% | 36 Terraform templates (14 AWS azurerm + 22 Azure) |
 
-**Overall: ~80% of SOC 2 Type II Security automated or templated.**
+**Overall: ~85% of SOC 2 Type II Security automated or templated across AWS and Azure.**
 
 ### What's NOT Covered (Founder Handles Manually)
 
@@ -478,9 +479,9 @@ In every case, the pattern was: error → diagnose → fix → continue. No erro
 | **Automated checks** | 60+ (40+ AWS, 22 Azure) |
 | **Control tests** | 17 |
 | **Policy templates** | 8 |
-| **Terraform remediation templates** | 14 |
+| **Terraform remediation templates** | 36 (14 AWS + 22 Azure) |
 | **External APIs integrated** | 5 (NVD, CISA KEV, OSV.dev, GitHub Advisory, GitHub API) |
-| **Unit tests** | 9 (passing) |
+| **Unit tests** | 100 (passing) |
 
 ### Token Consumption Estimate
 
@@ -556,7 +557,8 @@ shasta/
 │   ├── evidence/                          # Evidence management
 │   │   ├── models.py                      # Data models (Finding, Evidence, ScanResult)
 │   │   ├── store.py                       # SQLite-backed storage
-│   │   └── collector.py                   # 9 evidence collection functions
+│   │   ├── collector.py                   # 9 AWS evidence collection functions
+│   │   └── azure_collector.py             # 8 Azure evidence collection functions
 │   ├── remediation/
 │   │   └── engine.py                      # Remediation engine + 14 Terraform generators
 │   ├── policies/
@@ -574,8 +576,10 @@ shasta/
 │   ├── threat_intel/
 │   │   └── advisory.py                    # Personalized threat advisory engine
 │   ├── workflows/
-│   │   ├── access_review.py               # Quarterly access review workflow
-│   │   └── drift.py                       # Compliance drift detection
+│   │   ├── access_review.py               # Quarterly AWS IAM access review
+│   │   ├── azure_access_review.py         # Quarterly Azure Entra ID access review
+│   │   ├── drift.py                       # Compliance drift detection
+│   │   └── risk_register.py               # Risk register with auto-seeding
 │   └── db/
 │       └── schema.py                      # SQLite schema + CRUD operations
 │

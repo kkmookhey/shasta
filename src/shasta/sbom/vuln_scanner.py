@@ -109,10 +109,12 @@ def _query_osv_batch(dependencies: list[Dependency]) -> list[VulnerabilityMatch]
         if not osv_ecosystem or not dep.name or not dep.version or dep.version == "unknown":
             continue
 
-        queries.append({
-            "package": {"name": dep.name, "ecosystem": osv_ecosystem},
-            "version": dep.version,
-        })
+        queries.append(
+            {
+                "package": {"name": dep.name, "ecosystem": osv_ecosystem},
+                "version": dep.version,
+            }
+        )
         dep_map[len(queries) - 1] = dep
 
     if not queries:
@@ -120,7 +122,7 @@ def _query_osv_batch(dependencies: list[Dependency]) -> list[VulnerabilityMatch]
 
     # Batch in chunks of 100
     for chunk_start in range(0, len(queries), 100):
-        chunk = queries[chunk_start:chunk_start + 100]
+        chunk = queries[chunk_start : chunk_start + 100]
         try:
             payload = json.dumps({"queries": chunk}).encode("utf-8")
             req = request.Request(
@@ -154,18 +156,20 @@ def _query_osv_batch(dependencies: list[Dependency]) -> list[VulnerabilityMatch]
 
                     refs = [r.get("url", "") for r in vuln_data.get("references", [])[:3]]
 
-                    vulnerabilities.append(VulnerabilityMatch(
-                        vuln_id=vuln_id,
-                        package=dep.name,
-                        version=dep.version,
-                        ecosystem=dep.ecosystem,
-                        source_resource=dep.source,
-                        severity=severity,
-                        summary=summary,
-                        details=details,
-                        fixed_version=fixed,
-                        references=refs,
-                    ))
+                    vulnerabilities.append(
+                        VulnerabilityMatch(
+                            vuln_id=vuln_id,
+                            package=dep.name,
+                            version=dep.version,
+                            ecosystem=dep.ecosystem,
+                            source_resource=dep.source,
+                            severity=severity,
+                            summary=summary,
+                            details=details,
+                            fixed_version=fixed,
+                            references=refs,
+                        )
+                    )
 
         except (error.URLError, json.JSONDecodeError) as e:
             # OSV is optional — don't fail the whole scan

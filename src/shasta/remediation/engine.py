@@ -45,15 +45,17 @@ TERRAFORM_TEMPLATES: dict[str, callable] = {}
 
 def _tf(check_id: str):
     """Decorator to register a Terraform template generator."""
+
     def decorator(fn):
         TERRAFORM_TEMPLATES[check_id] = fn
         return fn
+
     return decorator
 
 
 @_tf("iam-password-policy")
 def _tf_password_policy(f: Finding) -> str:
-    return '''\
+    return """\
 resource "aws_iam_account_password_policy" "strict" {
   minimum_password_length        = 14
   require_lowercase_characters   = true
@@ -64,13 +66,13 @@ resource "aws_iam_account_password_policy" "strict" {
   max_password_age               = 90
   password_reuse_prevention      = 12
   hard_expiry                    = false
-}'''
+}"""
 
 
 @_tf("iam-user-mfa")
 def _tf_user_mfa(f: Finding) -> str:
     username = f.details.get("username", "USERNAME")
-    return f'''\
+    return f"""\
 # MFA must be enabled manually or via CLI — Terraform cannot create virtual MFA devices.
 # Run the following AWS CLI commands:
 
@@ -83,14 +85,14 @@ def _tf_user_mfa(f: Finding) -> str:
 # 3. Enable MFA for the user (replace CODE1 and CODE2 with two consecutive codes):
 #    aws iam enable-mfa-device --user-name {username} \\
 #        --serial-number arn:aws:iam::ACCOUNT_ID:mfa/{username}-mfa \\
-#        --authentication-code1 CODE1 --authentication-code2 CODE2'''
+#        --authentication-code1 CODE1 --authentication-code2 CODE2"""
 
 
 @_tf("iam-no-direct-policies")
 def _tf_no_direct_policies(f: Finding) -> str:
     username = f.details.get("username", "USERNAME")
     attached = f.details.get("attached_policies", [])
-    policies_block = "\n".join(f'  # - {p}' for p in attached)
+    policies_block = "\n".join(f"  # - {p}" for p in attached)
     return f'''\
 # Move direct policies from user '{username}' to a group.
 # Currently attached directly:

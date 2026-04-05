@@ -102,15 +102,21 @@ def check_ebs_volumes(client: AWSClient, account_id: str, region: str) -> list[F
                             name = tag["Value"]
 
                     attachments = vol.get("Attachments", [])
-                    attached_to = attachments[0].get("InstanceId", "unattached") if attachments else "unattached"
+                    attached_to = (
+                        attachments[0].get("InstanceId", "unattached")
+                        if attachments
+                        else "unattached"
+                    )
 
-                    unencrypted.append({
-                        "volume_id": vol_id,
-                        "name": name,
-                        "size_gb": vol.get("Size", 0),
-                        "state": vol.get("State", ""),
-                        "attached_to": attached_to,
-                    })
+                    unencrypted.append(
+                        {
+                            "volume_id": vol_id,
+                            "name": name,
+                            "size_gb": vol.get("Size", 0),
+                            "state": vol.get("State", ""),
+                            "attached_to": attached_to,
+                        }
+                    )
                 else:
                     encrypted_count += 1
 
@@ -123,7 +129,9 @@ def check_ebs_volumes(client: AWSClient, account_id: str, region: str) -> list[F
                     Finding(
                         check_id="ebs-volume-encrypted",
                         title=f"EBS volume {vol['volume_id']} is NOT encrypted",
-                        description=f"EBS volume {vol['volume_id']}" + (f" ({vol['name']})" if vol['name'] else "") + f" ({vol['size_gb']} GB, attached to {vol['attached_to']}) is not encrypted. Data at rest on this volume is not protected.",
+                        description=f"EBS volume {vol['volume_id']}"
+                        + (f" ({vol['name']})" if vol["name"] else "")
+                        + f" ({vol['size_gb']} GB, attached to {vol['attached_to']}) is not encrypted. Data at rest on this volume is not protected.",
                         severity=Severity.HIGH,
                         status=ComplianceStatus.FAIL,
                         domain=CheckDomain.ENCRYPTION,
@@ -190,7 +198,12 @@ def check_rds_encryption(client: AWSClient, account_id: str, region: str) -> lis
                             region=region,
                             account_id=account_id,
                             soc2_controls=["CC6.7"],
-                            details={"db_id": db_id, "engine": engine, "encrypted": True, "kms_key": kms_key},
+                            details={
+                                "db_id": db_id,
+                                "engine": engine,
+                                "encrypted": True,
+                                "kms_key": kms_key,
+                            },
                         )
                     )
                 else:
@@ -246,7 +259,11 @@ def check_rds_public_access(client: AWSClient, account_id: str, region: str) -> 
                             account_id=account_id,
                             remediation=f"Modify RDS instance '{db_id}' to set PubliclyAccessible = false. Access should be through private subnets or VPN only.",
                             soc2_controls=["CC6.6", "CC6.7"],
-                            details={"db_id": db_id, "publicly_accessible": True, "endpoint": endpoint},
+                            details={
+                                "db_id": db_id,
+                                "publicly_accessible": True,
+                                "endpoint": endpoint,
+                            },
                         )
                     )
     except ClientError:
@@ -293,7 +310,11 @@ def check_rds_backups(client: AWSClient, account_id: str, region: str) -> list[F
                             account_id=account_id,
                             remediation=f"Enable automated backups with 7+ day retention for '{db_id}'. Consider enabling Multi-AZ for production databases.",
                             soc2_controls=["CC6.7"],
-                            details={"db_id": db_id, "retention_days": retention, "multi_az": multi_az},
+                            details={
+                                "db_id": db_id,
+                                "retention_days": retention,
+                                "multi_az": multi_az,
+                            },
                         )
                     )
                 else:
@@ -310,7 +331,11 @@ def check_rds_backups(client: AWSClient, account_id: str, region: str) -> list[F
                             region=region,
                             account_id=account_id,
                             soc2_controls=["CC6.7"],
-                            details={"db_id": db_id, "retention_days": retention, "multi_az": multi_az},
+                            details={
+                                "db_id": db_id,
+                                "retention_days": retention,
+                                "multi_az": multi_az,
+                            },
                         )
                     )
     except ClientError:

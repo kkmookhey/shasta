@@ -121,7 +121,6 @@ SOC2_CONTROLS: dict[str, SOC2Control] = {
         ],
         guidance="This control requires encryption everywhere: data at rest (S3/Storage/Disks), data in transit (TLS/SSL), and access controls on storage.",
     ),
-
     # CC7 — System Operations / Monitoring
     "CC7.1": SOC2Control(
         id="CC7.1",
@@ -153,7 +152,6 @@ SOC2_CONTROLS: dict[str, SOC2Control] = {
         ],
         guidance="This control requires active threat monitoring: GuardDuty/Defender for anomaly detection, and a process to review and respond to findings.",
     ),
-
     # CC8 — Change Management
     "CC8.1": SOC2Control(
         id="CC8.1",
@@ -170,7 +168,6 @@ SOC2_CONTROLS: dict[str, SOC2Control] = {
         requires_policy=True,
         guidance="This control requires change tracking: CloudTrail/Activity Log logs all API changes, Config/Policy records configuration history, and you need a documented change management policy.",
     ),
-
     # Non-automated controls (require policies/processes)
     "CC1.1": SOC2Control(
         id="CC1.1",

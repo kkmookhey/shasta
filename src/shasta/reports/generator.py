@@ -321,8 +321,12 @@ def _build_context(scan: ScanResult) -> dict:
     control_summary = get_control_summary(scan.findings)
 
     # Split controls
-    assessed_controls = {k: v for k, v in control_summary.items() if v["overall_status"] not in ("not_assessed",)}
-    policy_controls = {k: v for k, v in control_summary.items() if v["overall_status"] == "requires_policy"}
+    assessed_controls = {
+        k: v for k, v in control_summary.items() if v["overall_status"] not in ("not_assessed",)
+    }
+    policy_controls = {
+        k: v for k, v in control_summary.items() if v["overall_status"] == "requires_policy"
+    }
 
     # Split findings by severity
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
@@ -353,8 +357,20 @@ def _build_context(scan: ScanResult) -> dict:
 
 def _make_jinja_env() -> Environment:
     env = Environment(loader=BaseLoader(), autoescape=False)
-    env.globals["status_icon"] = lambda s: {"pass": "✅", "fail": "❌", "partial": "⚠️", "requires_policy": "📋", "not_assessed": "—"}.get(s, "—")
-    env.globals["severity_icon"] = lambda s: {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "ℹ️"}.get(s, "")
+    env.globals["status_icon"] = lambda s: {
+        "pass": "✅",
+        "fail": "❌",
+        "partial": "⚠️",
+        "requires_policy": "📋",
+        "not_assessed": "—",
+    }.get(s, "—")
+    env.globals["severity_icon"] = lambda s: {
+        "critical": "🔴",
+        "high": "🟠",
+        "medium": "🟡",
+        "low": "🔵",
+        "info": "ℹ️",
+    }.get(s, "")
     env.filters["truncate"] = lambda s, length=60: s[:length] + "..." if len(s) > length else s
     return env
 

@@ -80,7 +80,9 @@ def check_password_policy(iam: Any, account_id: str, region: str) -> list[Findin
     if policy.get("MaxPasswordAge", 0) == 0:
         issues.append("Password expiration not enforced")
     if policy.get("PasswordReusePrevention", 0) < 12:
-        issues.append(f"Password reuse prevention is {policy.get('PasswordReusePrevention', 0)}, should be 12+")
+        issues.append(
+            f"Password reuse prevention is {policy.get('PasswordReusePrevention', 0)}, should be 12+"
+        )
 
     if issues:
         status = ComplianceStatus.FAIL if len(issues) >= 3 else ComplianceStatus.PARTIAL
@@ -143,7 +145,9 @@ def check_root_account(iam: Any, account_id: str, region: str) -> list[Finding]:
             resource_id=f"arn:aws:iam::{account_id}:root",
             region=region,
             account_id=account_id,
-            remediation="" if root_mfa else "Enable MFA on the root account immediately. Use a hardware MFA device for maximum security.",
+            remediation=""
+            if root_mfa
+            else "Enable MFA on the root account immediately. Use a hardware MFA device for maximum security.",
             soc2_controls=["CC6.1"],
             details={"mfa_enabled": root_mfa},
         )
@@ -156,9 +160,10 @@ def check_root_account(iam: Any, account_id: str, region: str) -> list[Finding]:
         report = _parse_credential_report(iam)
         root_entry = next((u for u in report if u["user"] == "<root_account>"), None)
         if root_entry:
-            has_keys = root_entry.get("access_key_1_active", "false") == "true" or root_entry.get(
-                "access_key_2_active", "false"
-            ) == "true"
+            has_keys = (
+                root_entry.get("access_key_1_active", "false") == "true"
+                or root_entry.get("access_key_2_active", "false") == "true"
+            )
             if has_keys:
                 findings.append(
                     Finding(
@@ -174,7 +179,10 @@ def check_root_account(iam: Any, account_id: str, region: str) -> list[Finding]:
                         account_id=account_id,
                         remediation="Delete root account access keys. Create IAM users or roles for programmatic access.",
                         soc2_controls=["CC6.1"],
-                        details={"access_key_1_active": root_entry.get("access_key_1_active"), "access_key_2_active": root_entry.get("access_key_2_active")},
+                        details={
+                            "access_key_1_active": root_entry.get("access_key_1_active"),
+                            "access_key_2_active": root_entry.get("access_key_2_active"),
+                        },
                     )
                 )
     except Exception:
@@ -212,7 +220,11 @@ def check_user_mfa(iam: Any, account_id: str, region: str) -> list[Finding]:
                 title=f"MFA {'enabled' if has_mfa else 'NOT enabled'} for user '{username}'",
                 description=(
                     f"IAM user '{username}' has console access and MFA is {'enabled' if has_mfa else 'not enabled'}."
-                    + ("" if has_mfa else " Users with console access must have MFA to meet SOC 2 requirements.")
+                    + (
+                        ""
+                        if has_mfa
+                        else " Users with console access must have MFA to meet SOC 2 requirements."
+                    )
                 ),
                 severity=Severity.INFO if has_mfa else Severity.HIGH,
                 status=ComplianceStatus.PASS if has_mfa else ComplianceStatus.FAIL,
@@ -221,9 +233,16 @@ def check_user_mfa(iam: Any, account_id: str, region: str) -> list[Finding]:
                 resource_id=user["Arn"],
                 region=region,
                 account_id=account_id,
-                remediation="" if has_mfa else f"Enable MFA for user '{username}'. Virtual MFA (authenticator app) or hardware MFA are both acceptable.",
+                remediation=""
+                if has_mfa
+                else f"Enable MFA for user '{username}'. Virtual MFA (authenticator app) or hardware MFA are both acceptable.",
                 soc2_controls=["CC6.1"],
-                details={"username": username, "has_console_access": True, "mfa_enabled": has_mfa, "mfa_device_count": len(mfa_devices)},
+                details={
+                    "username": username,
+                    "has_console_access": True,
+                    "mfa_enabled": has_mfa,
+                    "mfa_device_count": len(mfa_devices),
+                },
             )
         )
 
@@ -263,7 +282,12 @@ def check_access_key_rotation(iam: Any, account_id: str, region: str) -> list[Fi
                         account_id=account_id,
                         remediation=f"Rotate access key {key_id} for user '{username}'. Create a new key, update applications, then deactivate and delete the old key.",
                         soc2_controls=["CC6.3"],
-                        details={"username": username, "access_key_id": key_id, "age_days": age_days, "created": key["CreateDate"].isoformat()},
+                        details={
+                            "username": username,
+                            "access_key_id": key_id,
+                            "age_days": age_days,
+                            "created": key["CreateDate"].isoformat(),
+                        },
                     )
                 )
             else:
@@ -280,7 +304,12 @@ def check_access_key_rotation(iam: Any, account_id: str, region: str) -> list[Fi
                         region=region,
                         account_id=account_id,
                         soc2_controls=["CC6.3"],
-                        details={"username": username, "access_key_id": key_id, "age_days": age_days, "created": key["CreateDate"].isoformat()},
+                        details={
+                            "username": username,
+                            "access_key_id": key_id,
+                            "age_days": age_days,
+                            "created": key["CreateDate"].isoformat(),
+                        },
                     )
                 )
 
@@ -352,7 +381,11 @@ def check_inactive_users(iam: Any, account_id: str, region: str) -> list[Finding
                             account_id=account_id,
                             remediation=f"Review whether user '{username}' is still needed. If not, disable or delete the account.",
                             soc2_controls=["CC6.3"],
-                            details={"username": username, "last_activity": None, "created": user_creation},
+                            details={
+                                "username": username,
+                                "last_activity": None,
+                                "created": user_creation,
+                            },
                         )
                     )
             except (ValueError, TypeError):
@@ -373,7 +406,12 @@ def check_inactive_users(iam: Any, account_id: str, region: str) -> list[Finding
                     account_id=account_id,
                     remediation=f"Review whether user '{username}' still needs access. If not, disable credentials and delete the account.",
                     soc2_controls=["CC6.3"],
-                    details={"username": username, "last_activity": last_activity.isoformat(), "activity_source": activity_source, "days_inactive": days_inactive},
+                    details={
+                        "username": username,
+                        "last_activity": last_activity.isoformat(),
+                        "activity_source": activity_source,
+                        "days_inactive": days_inactive,
+                    },
                 )
             )
 
@@ -409,7 +447,11 @@ def check_user_direct_policies(iam: Any, account_id: str, region: str) -> list[F
                     account_id=account_id,
                     remediation=f"Move direct policies for '{username}' to an IAM group. Add the user to the group instead of attaching policies directly.",
                     soc2_controls=["CC6.2"],
-                    details={"username": username, "attached_policies": [p["PolicyName"] for p in attached], "inline_policies": list(inline)},
+                    details={
+                        "username": username,
+                        "attached_policies": [p["PolicyName"] for p in attached],
+                        "inline_policies": list(inline),
+                    },
                 )
             )
 
@@ -427,13 +469,17 @@ def check_overprivileged_users(iam: Any, account_id: str, region: str) -> list[F
 
         # Check directly attached policies
         attached = iam.list_attached_user_policies(UserName=username)["AttachedPolicies"]
-        dangerous_direct = [p["PolicyName"] for p in attached if p["PolicyArn"] in OVERPRIVILEGED_POLICIES]
+        dangerous_direct = [
+            p["PolicyName"] for p in attached if p["PolicyArn"] in OVERPRIVILEGED_POLICIES
+        ]
 
         # Check group policies
         groups = iam.list_groups_for_user(UserName=username)["Groups"]
         dangerous_group = []
         for group in groups:
-            group_policies = iam.list_attached_group_policies(GroupName=group["GroupName"])["AttachedPolicies"]
+            group_policies = iam.list_attached_group_policies(GroupName=group["GroupName"])[
+                "AttachedPolicies"
+            ]
             dangerous_group.extend(
                 f"{p['PolicyName']} (via group '{group['GroupName']}')"
                 for p in group_policies
@@ -466,6 +512,7 @@ def check_overprivileged_users(iam: Any, account_id: str, region: str) -> list[F
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_all_users(iam: Any) -> list[dict]:
     """Get all IAM users, handling pagination."""

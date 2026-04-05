@@ -64,7 +64,9 @@ def check_conditional_access_mfa(
     """[CC6.1] Check if Conditional Access policies enforce MFA for all users."""
     try:
         graph = client.graph_client()
-        policies = list(client.graph_call(graph.identity.conditional_access.policies.get()).value or [])
+        policies = list(
+            client.graph_call(graph.identity.conditional_access.policies.get()).value or []
+        )
 
         mfa_enforced = False
         mfa_policy_names = []
@@ -164,8 +166,12 @@ def check_privileged_roles(client: AzureClient, subscription_id: str, region: st
 
     try:
         graph = client.graph_client()
-        role_assignments = list(client.graph_call(graph.role_management.directory.role_assignments.get()).value or [])
-        role_definitions = list(client.graph_call(graph.role_management.directory.role_definitions.get()).value or [])
+        role_assignments = list(
+            client.graph_call(graph.role_management.directory.role_assignments.get()).value or []
+        )
+        role_definitions = list(
+            client.graph_call(graph.role_management.directory.role_definitions.get()).value or []
+        )
 
         # Map role definition IDs to names
         role_map = {rd.id: rd.display_name for rd in role_definitions}

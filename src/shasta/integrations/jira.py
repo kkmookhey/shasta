@@ -68,7 +68,7 @@ class JiraClient:
                 {
                     "type": "heading",
                     "attrs": {"level": 2},
-                    "content": [{"type": "text", "text": "Compliance Finding"}]
+                    "content": [{"type": "text", "text": "Compliance Finding"}],
                 },
                 {
                     "type": "table",
@@ -79,32 +79,31 @@ class JiraClient:
                         _table_row("Domain", finding.domain.value),
                         _table_row("Resource", finding.resource_id),
                         _table_row("Check ID", finding.check_id),
-                    ]
+                    ],
                 },
                 {
                     "type": "heading",
                     "attrs": {"level": 3},
-                    "content": [{"type": "text", "text": "Description"}]
+                    "content": [{"type": "text", "text": "Description"}],
                 },
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": finding.description}]
-                },
-            ]
+                {"type": "paragraph", "content": [{"type": "text", "text": finding.description}]},
+            ],
         }
 
         if finding.remediation:
-            description["content"].extend([
-                {
-                    "type": "heading",
-                    "attrs": {"level": 3},
-                    "content": [{"type": "text", "text": "Remediation"}]
-                },
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": finding.remediation}]
-                },
-            ])
+            description["content"].extend(
+                [
+                    {
+                        "type": "heading",
+                        "attrs": {"level": 3},
+                        "content": [{"type": "text", "text": "Remediation"}],
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": finding.remediation}],
+                    },
+                ]
+            )
 
         payload = {
             "fields": {
@@ -112,7 +111,13 @@ class JiraClient:
                 "summary": f"[SOC2] {finding.title}",
                 "description": description,
                 "issuetype": {"name": "Bug"},
-                "labels": ["shasta", "compliance", "soc2", finding.severity.value, finding.domain.value],
+                "labels": [
+                    "shasta",
+                    "compliance",
+                    "soc2",
+                    finding.severity.value,
+                    finding.domain.value,
+                ],
             }
         }
 
@@ -126,7 +131,9 @@ class JiraClient:
             finding_id=finding.id,
         )
 
-    def create_finding_tickets(self, findings: list[Finding], min_severity: str = "high") -> list[JiraTicket]:
+    def create_finding_tickets(
+        self, findings: list[Finding], min_severity: str = "high"
+    ) -> list[JiraTicket]:
         """Create Jira tickets for all findings at or above min_severity."""
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         threshold = severity_order.get(min_severity, 1)
@@ -144,7 +151,7 @@ class JiraClient:
 
     def search_existing_tickets(self, label: str = "shasta") -> list[dict]:
         """Search for existing Shasta tickets."""
-        jql = f'project = {self._project_key} AND labels = {label} AND status != Done'
+        jql = f"project = {self._project_key} AND labels = {label} AND status != Done"
         result = self._request("GET", f"/search?jql={jql}&maxResults=50")
         return result.get("issues", [])
 
@@ -154,7 +161,18 @@ def _table_row(key: str, value: str) -> dict:
     return {
         "type": "tableRow",
         "content": [
-            {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": key, "marks": [{"type": "strong"}]}]}]},
-            {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": value}]}]},
-        ]
+            {
+                "type": "tableCell",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": key, "marks": [{"type": "strong"}]}],
+                    }
+                ],
+            },
+            {
+                "type": "tableCell",
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": value}]}],
+            },
+        ],
     }

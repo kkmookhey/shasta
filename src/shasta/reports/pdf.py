@@ -36,14 +36,14 @@ CSS_VARS = {
 def _resolve_css_vars(html: str) -> str:
     """Replace CSS var() references with literal values for xhtml2pdf compatibility."""
     # Remove the :root block (xhtml2pdf can't parse it)
-    html = re.sub(r':root\s*\{[^}]+\}', '', html)
+    html = re.sub(r":root\s*\{[^}]+\}", "", html)
 
     # Replace var(--name) with the literal value
     def replace_var(match: re.Match) -> str:
         var_name = match.group(1).strip()
         return CSS_VARS.get(var_name, "#000000")
 
-    html = re.sub(r'var\(([^)]+)\)', replace_var, html)
+    html = re.sub(r"var\(([^)]+)\)", replace_var, html)
     return html
 
 

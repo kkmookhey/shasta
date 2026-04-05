@@ -44,7 +44,11 @@ def check_s3_encryption(s3: Any, bucket_name: str, account_id: str, region: str)
         rules = enc.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
 
         if rules:
-            algo = rules[0].get("ApplyServerSideEncryptionByDefault", {}).get("SSEAlgorithm", "unknown")
+            algo = (
+                rules[0]
+                .get("ApplyServerSideEncryptionByDefault", {})
+                .get("SSEAlgorithm", "unknown")
+            )
             algo_display = "KMS" if "kms" in algo.lower() else "AES-256" if "AES" in algo else algo
 
             return [
@@ -132,7 +136,9 @@ def check_s3_versioning(s3: Any, bucket_name: str, account_id: str, region: str)
         return []
 
 
-def check_s3_public_access_block(s3: Any, bucket_name: str, account_id: str, region: str) -> list[Finding]:
+def check_s3_public_access_block(
+    s3: Any, bucket_name: str, account_id: str, region: str
+) -> list[Finding]:
     """CC6.7 — Check that S3 bucket has public access blocked."""
     try:
         pab = s3.get_public_access_block(Bucket=bucket_name)["PublicAccessBlockConfiguration"]
@@ -218,6 +224,7 @@ def check_s3_ssl_only(s3: Any, bucket_name: str, account_id: str, region: str) -
     try:
         policy_str = s3.get_bucket_policy(Bucket=bucket_name)["Policy"]
         import json
+
         policy = json.loads(policy_str)
 
         # Look for a deny statement on aws:SecureTransport = false

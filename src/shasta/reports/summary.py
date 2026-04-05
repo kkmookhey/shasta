@@ -43,41 +43,51 @@ def summarize_scan(scan: ScanResult, max_detail_per_check: int = 5) -> dict:
 
         truncated = len(findings) - len(detail_findings)
 
-        summary_groups.append({
-            "check_id": check_id,
-            "title": findings[0].title.split("'")[0].strip() if findings else check_id,
-            "domain": findings[0].domain.value if findings else "unknown",
-            "soc2_controls": findings[0].soc2_controls if findings else [],
-            "total": len(findings),
-            "passed": len(passed),
-            "failed": len(failed),
-            "partial": len(partial),
-            "worst_severity": _worst_severity(findings),
-            "findings": [
-                {
-                    "title": f.title,
-                    "severity": f.severity.value,
-                    "status": f.status.value,
-                    "resource_id": f.resource_id,
-                    "remediation": f.remediation,
-                }
-                for f in detail_findings
-            ],
-            "truncated": truncated,
-        })
+        summary_groups.append(
+            {
+                "check_id": check_id,
+                "title": findings[0].title.split("'")[0].strip() if findings else check_id,
+                "domain": findings[0].domain.value if findings else "unknown",
+                "soc2_controls": findings[0].soc2_controls if findings else [],
+                "total": len(findings),
+                "passed": len(passed),
+                "failed": len(failed),
+                "partial": len(partial),
+                "worst_severity": _worst_severity(findings),
+                "findings": [
+                    {
+                        "title": f.title,
+                        "severity": f.severity.value,
+                        "status": f.status.value,
+                        "resource_id": f.resource_id,
+                        "remediation": f.remediation,
+                    }
+                    for f in detail_findings
+                ],
+                "truncated": truncated,
+            }
+        )
 
     # Sort: failed groups first, then by severity
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-    summary_groups.sort(key=lambda g: (
-        0 if g["failed"] > 0 else 1,
-        severity_order.get(g["worst_severity"], 5),
-    ))
+    summary_groups.sort(
+        key=lambda g: (
+            0 if g["failed"] > 0 else 1,
+            severity_order.get(g["worst_severity"], 5),
+        )
+    )
 
     return {
         "scan_id": scan.id,
         "account_id": scan.account_id,
-        "scanned_at": scan.started_at.isoformat() if hasattr(scan.started_at, 'isoformat') else str(scan.started_at),
-        "completed_at": scan.completed_at.isoformat() if scan.completed_at and hasattr(scan.completed_at, 'isoformat') else str(scan.completed_at) if scan.completed_at else None,
+        "scanned_at": scan.started_at.isoformat()
+        if hasattr(scan.started_at, "isoformat")
+        else str(scan.started_at),
+        "completed_at": scan.completed_at.isoformat()
+        if scan.completed_at and hasattr(scan.completed_at, "isoformat")
+        else str(scan.completed_at)
+        if scan.completed_at
+        else None,
         "total_findings": len(scan.findings),
         "total_passed": sum(1 for f in scan.findings if f.status.value == "pass"),
         "total_failed": sum(1 for f in scan.findings if f.status.value == "fail"),

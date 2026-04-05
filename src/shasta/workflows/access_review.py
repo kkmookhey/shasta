@@ -95,9 +95,7 @@ def run_access_review(client: AWSClient) -> AccessReviewReport:
     return report
 
 
-def _build_user_record(
-    iam: Any, user: dict, cred_report: dict, now: datetime
-) -> UserAccessRecord:
+def _build_user_record(iam: Any, user: dict, cred_report: dict, now: datetime) -> UserAccessRecord:
     """Build a detailed access record for a single user."""
     username = user["UserName"]
     arn = user["Arn"]
@@ -119,18 +117,23 @@ def _build_user_record(
     keys = []
     for key in iam.list_access_keys(UserName=username)["AccessKeyMetadata"]:
         age_days = (now - key["CreateDate"]).days
-        keys.append({
-            "key_id": key["AccessKeyId"],
-            "status": key["Status"],
-            "created": key["CreateDate"].isoformat(),
-            "age_days": age_days,
-        })
+        keys.append(
+            {
+                "key_id": key["AccessKeyId"],
+                "status": key["Status"],
+                "created": key["CreateDate"].isoformat(),
+                "age_days": age_days,
+            }
+        )
 
     # Groups
     groups = [g["GroupName"] for g in iam.list_groups_for_user(UserName=username)["Groups"]]
 
     # Direct policies
-    attached = [p["PolicyName"] for p in iam.list_attached_user_policies(UserName=username)["AttachedPolicies"]]
+    attached = [
+        p["PolicyName"]
+        for p in iam.list_attached_user_policies(UserName=username)["AttachedPolicies"]
+    ]
     inline = iam.list_user_policies(UserName=username)["PolicyNames"]
 
     # Last activity from credential report
@@ -206,7 +209,9 @@ def _build_user_record(
     )
 
 
-def save_access_review(report: AccessReviewReport, output_path: Path | str = "data/reviews") -> Path:
+def save_access_review(
+    report: AccessReviewReport, output_path: Path | str = "data/reviews"
+) -> Path:
     """Save the access review as a Markdown report."""
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +240,9 @@ def save_access_review(report: AccessReviewReport, output_path: Path | str = "da
         for r in flagged:
             lines.append(f"### {r.username}")
             lines.append(f"- **Flags:** {', '.join(r.flags)}")
-            lines.append(f"- **Console:** {'Yes' if r.has_console else 'No'} | **MFA:** {'Yes' if r.has_mfa else 'No'}")
+            lines.append(
+                f"- **Console:** {'Yes' if r.has_console else 'No'} | **MFA:** {'Yes' if r.has_mfa else 'No'}"
+            )
             lines.append(f"- **Groups:** {', '.join(r.groups) or 'None'}")
             lines.append(f"- **Direct Policies:** {', '.join(r.attached_policies) or 'None'}")
             lines.append(f"- **Access Keys:** {len(r.access_keys)}")
@@ -247,8 +254,12 @@ def save_access_review(report: AccessReviewReport, output_path: Path | str = "da
     # All users table
     lines.append("## All Users Summary")
     lines.append("")
-    lines.append("| User | Console | MFA | Keys | Groups | Direct Policies | Inactive Days | Flags |")
-    lines.append("|------|---------|-----|------|--------|-----------------|---------------|-------|")
+    lines.append(
+        "| User | Console | MFA | Keys | Groups | Direct Policies | Inactive Days | Flags |"
+    )
+    lines.append(
+        "|------|---------|-----|------|--------|-----------------|---------------|-------|"
+    )
     for r in report.records:
         flags_str = ", ".join(r.flags) if r.flags else "-"
         lines.append(
@@ -258,20 +269,22 @@ def save_access_review(report: AccessReviewReport, output_path: Path | str = "da
             f"| {r.days_inactive or '-'} | {flags_str} |"
         )
 
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## Reviewer Sign-off",
-        "",
-        "| Field | Value |",
-        "|-------|-------|",
-        "| Reviewed by | ___________________ |",
-        "| Date | ___________________ |",
-        "| Actions taken | ___________________ |",
-        "",
-        "*This review satisfies SOC 2 CC6.2 (Access Provisioning) and CC6.3 (Access Removal) requirements.*",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## Reviewer Sign-off",
+            "",
+            "| Field | Value |",
+            "|-------|-------|",
+            "| Reviewed by | ___________________ |",
+            "| Date | ___________________ |",
+            "| Actions taken | ___________________ |",
+            "",
+            "*This review satisfies SOC 2 CC6.2 (Access Provisioning) and CC6.3 (Access Removal) requirements.*",
+        ]
+    )
 
     filepath.write_text("\n".join(lines), encoding="utf-8")
     return filepath

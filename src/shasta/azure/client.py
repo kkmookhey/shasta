@@ -84,9 +84,7 @@ class AzureClient:
         try:
             from azure.mgmt.subscription import SubscriptionClient
         except ImportError:
-            raise AzureClientError(
-                "Azure SDK not installed. Run: pip install -e '.[azure]'"
-            )
+            raise AzureClientError("Azure SDK not installed. Run: pip install -e '.[azure]'")
 
         try:
             sub_client = SubscriptionClient(self.credential)
@@ -233,6 +231,26 @@ class AzureClient:
             self._graph_loop = asyncio.new_event_loop()
 
         return self._graph_loop.run_until_complete(coro)
+
+    def close(self) -> None:
+        """Close the client and release resources (event loop, cached clients)."""
+        if hasattr(self, "_graph_loop") and self._graph_loop is not None:
+            self._graph_loop.close()
+            self._graph_loop = None
+        self._mgmt_clients.clear()
+        self._credential = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize connection info for reporting."""

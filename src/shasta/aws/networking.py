@@ -65,24 +65,28 @@ def check_security_groups(ec2: Any, account_id: str, region: str) -> list[Findin
                 for ip_range in rule.get("IpRanges", []):
                     cidr = ip_range.get("CidrIp", "")
                     if cidr == "0.0.0.0/0":
-                        unrestricted_rules.append({
-                            "protocol": protocol,
-                            "from_port": from_port,
-                            "to_port": to_port,
-                            "cidr": cidr,
-                            "description": ip_range.get("Description", ""),
-                        })
+                        unrestricted_rules.append(
+                            {
+                                "protocol": protocol,
+                                "from_port": from_port,
+                                "to_port": to_port,
+                                "cidr": cidr,
+                                "description": ip_range.get("Description", ""),
+                            }
+                        )
 
                 for ip_range in rule.get("Ipv6Ranges", []):
                     cidr = ip_range.get("CidrIpv6", "")
                     if cidr == "::/0":
-                        unrestricted_rules.append({
-                            "protocol": protocol,
-                            "from_port": from_port,
-                            "to_port": to_port,
-                            "cidr": cidr,
-                            "description": ip_range.get("Description", ""),
-                        })
+                        unrestricted_rules.append(
+                            {
+                                "protocol": protocol,
+                                "from_port": from_port,
+                                "to_port": to_port,
+                                "cidr": cidr,
+                                "description": ip_range.get("Description", ""),
+                            }
+                        )
 
             if not unrestricted_rules:
                 findings.append(
@@ -123,7 +127,12 @@ def check_security_groups(ec2: Any, account_id: str, region: str) -> list[Findin
                 desc = f"Security group '{sg_name}' ({sg_id}) allows inbound access from the internet to: {services}. These management/database ports should never be publicly exposed."
             else:
                 severity = Severity.MEDIUM
-                ports = ", ".join(f"{r['from_port']}-{r['to_port']}" if r['from_port'] != r['to_port'] else str(r['from_port']) for r in unrestricted_rules)
+                ports = ", ".join(
+                    f"{r['from_port']}-{r['to_port']}"
+                    if r["from_port"] != r["to_port"]
+                    else str(r["from_port"])
+                    for r in unrestricted_rules
+                )
                 desc = f"Security group '{sg_name}' ({sg_id}) allows inbound access from the internet on port(s): {ports}. Review whether public access is intended."
 
             findings.append(
@@ -140,7 +149,12 @@ def check_security_groups(ec2: Any, account_id: str, region: str) -> list[Findin
                     account_id=account_id,
                     remediation=f"Restrict inbound rules on '{sg_name}' to specific IP ranges or security groups. Remove 0.0.0.0/0 and ::/0 CIDR blocks.",
                     soc2_controls=["CC6.6"],
-                    details={"sg_name": sg_name, "vpc_id": vpc_id, "unrestricted_rules": unrestricted_rules, "dangerous_ports_open": dangerous_ports_open},
+                    details={
+                        "sg_name": sg_name,
+                        "vpc_id": vpc_id,
+                        "unrestricted_rules": unrestricted_rules,
+                        "dangerous_ports_open": dangerous_ports_open,
+                    },
                 )
             )
 
@@ -233,7 +247,11 @@ def check_default_security_groups(ec2: Any, account_id: str, region: str) -> lis
                         account_id=account_id,
                         remediation=f"Remove all inbound rules from the default security group ({sg_id}) in VPC {vpc_id}. Use custom security groups for resources.",
                         soc2_controls=["CC6.6"],
-                        details={"sg_id": sg_id, "vpc_id": vpc_id, "ingress_rules": sg.get("IpPermissions", [])},
+                        details={
+                            "sg_id": sg_id,
+                            "vpc_id": vpc_id,
+                            "ingress_rules": sg.get("IpPermissions", []),
+                        },
                     )
                 )
 

@@ -87,7 +87,9 @@ def generate_daily_advisory(
         if adv.id not in seen:
             seen.add(adv.id)
             unique.append(adv)
-    report.advisories = sorted(unique, key=lambda a: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(a.severity, 4))
+    report.advisories = sorted(
+        unique, key=lambda a: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(a.severity, 4)
+    )
 
     report.total_advisories = len(report.advisories)
     report.critical_count = sum(1 for a in report.advisories if a.severity == "critical")
@@ -166,23 +168,26 @@ def _query_nvd(tech_stack: dict, start_date: datetime) -> list[ThreatAdvisory]:
                 references = [r.get("url", "") for r in cve.get("references", [])[:3]]
 
                 version = tech_stack.get(term, "unknown")
-                advisories.append(ThreatAdvisory(
-                    id=cve_id,
-                    title=f"{cve_id}: {term} vulnerability (CVSS {score})",
-                    severity=severity,
-                    published=published,
-                    description=desc[:500],
-                    affected_component=f"{term} {version}",
-                    affected_resource=f"Detected in your environment via SBOM",
-                    action_required=f"Check if your version of {term} ({version}) is affected. Update to the latest patched version.",
-                    references=references,
-                ))
+                advisories.append(
+                    ThreatAdvisory(
+                        id=cve_id,
+                        title=f"{cve_id}: {term} vulnerability (CVSS {score})",
+                        severity=severity,
+                        published=published,
+                        description=desc[:500],
+                        affected_component=f"{term} {version}",
+                        affected_resource=f"Detected in your environment via SBOM",
+                        action_required=f"Check if your version of {term} ({version}) is affected. Update to the latest patched version.",
+                        references=references,
+                    )
+                )
 
         except (error.URLError, json.JSONDecodeError, error.HTTPError):
             continue  # NVD rate limits are strict — fail gracefully
 
         # NVD rate limit: 5 requests per 30 seconds without API key
         import time
+
         time.sleep(6)
 
     return advisories
@@ -220,17 +225,19 @@ def _query_cisa_kev_recent(tech_stack: dict, start_date: datetime) -> list[Threa
                     break
 
             if affected:
-                advisories.append(ThreatAdvisory(
-                    id=vuln.get("cveID", ""),
-                    title=f"CISA KEV: {vuln.get('vulnerabilityName', '')}",
-                    severity="critical",  # KEV = actively exploited
-                    published=date_added,
-                    description=vuln.get("shortDescription", ""),
-                    affected_component=f"{vuln.get('vendorProject', '')} {vuln.get('product', '')}",
-                    affected_resource="Detected in your tech stack — actively exploited in the wild",
-                    action_required=f"Remediate by {vuln.get('requiredAction', 'applying vendor patch')}. Due date: {vuln.get('dueDate', 'ASAP')}",
-                    is_kev=True,
-                ))
+                advisories.append(
+                    ThreatAdvisory(
+                        id=vuln.get("cveID", ""),
+                        title=f"CISA KEV: {vuln.get('vulnerabilityName', '')}",
+                        severity="critical",  # KEV = actively exploited
+                        published=date_added,
+                        description=vuln.get("shortDescription", ""),
+                        affected_component=f"{vuln.get('vendorProject', '')} {vuln.get('product', '')}",
+                        affected_resource="Detected in your tech stack — actively exploited in the wild",
+                        action_required=f"Remediate by {vuln.get('requiredAction', 'applying vendor patch')}. Due date: {vuln.get('dueDate', 'ASAP')}",
+                        is_kev=True,
+                    )
+                )
 
     except (error.URLError, json.JSONDecodeError):
         pass
@@ -247,7 +254,13 @@ def _check_recent_supply_chain(tech_stack: dict, start_date: datetime) -> list[T
     for name in tech_stack:
         if name.startswith("ecosystem:"):
             eco = name.split(":")[1]
-            gh_eco_map = {"pypi": "pip", "npm": "npm", "maven": "maven", "go": "go", "rubygems": "rubygems"}
+            gh_eco_map = {
+                "pypi": "pip",
+                "npm": "npm",
+                "maven": "maven",
+                "go": "go",
+                "rubygems": "rubygems",
+            }
             if eco in gh_eco_map:
                 ecosystems_to_check.add(gh_eco_map[eco])
 
@@ -261,10 +274,13 @@ def _check_recent_supply_chain(tech_stack: dict, start_date: datetime) -> list[T
                 f"&sort=published"
                 f"&direction=desc"
             )
-            req = request.Request(url, headers={
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            })
+            req = request.Request(
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
             resp = request.urlopen(req, timeout=15)
             data = json.loads(resp.read())
 
@@ -293,18 +309,20 @@ def _check_recent_supply_chain(tech_stack: dict, start_date: datetime) -> list[T
                     continue
 
                 severity = adv.get("severity", "medium")
-                advisories.append(ThreatAdvisory(
-                    id=cve_id or ghsa_id,
-                    title=adv.get("summary", "Supply chain advisory"),
-                    severity=severity,
-                    published=published,
-                    description=adv.get("description", "")[:500],
-                    affected_component=affected_pkg,
-                    affected_resource=f"Found in your SBOM",
-                    action_required="Update to the patched version immediately.",
-                    references=[adv.get("html_url", "")],
-                    is_supply_chain=True,
-                ))
+                advisories.append(
+                    ThreatAdvisory(
+                        id=cve_id or ghsa_id,
+                        title=adv.get("summary", "Supply chain advisory"),
+                        severity=severity,
+                        published=published,
+                        description=adv.get("description", "")[:500],
+                        affected_component=affected_pkg,
+                        affected_resource=f"Found in your SBOM",
+                        action_required="Update to the patched version immediately.",
+                        references=[adv.get("html_url", "")],
+                        is_supply_chain=True,
+                    )
+                )
 
         except (error.URLError, json.JSONDecodeError, error.HTTPError):
             continue
@@ -316,19 +334,25 @@ def format_advisory_slack(report: DailyAdvisoryReport) -> dict:
     """Format the daily advisory as a Slack message."""
     if not report.advisories:
         return {
-            "blocks": [{
-                "type": "header",
-                "text": {"type": "plain_text", "text": ":shield: Shasta Daily Threat Advisory"}
-            }, {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"No new threats affecting your environment in the {report.period}. :white_check_mark:\n\n_Monitoring: {report.tech_stack_summary}_"}
-            }]
+            "blocks": [
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": ":shield: Shasta Daily Threat Advisory"},
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"No new threats affecting your environment in the {report.period}. :white_check_mark:\n\n_Monitoring: {report.tech_stack_summary}_",
+                    },
+                },
+            ]
         }
 
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": ":shield: Shasta Daily Threat Advisory"}
+            "text": {"type": "plain_text", "text": ":shield: Shasta Daily Threat Advisory"},
         },
         {
             "type": "section",
@@ -337,36 +361,50 @@ def format_advisory_slack(report: DailyAdvisoryReport) -> dict:
                 {"type": "mrkdwn", "text": f"*Total Advisories:* {report.total_advisories}"},
                 {"type": "mrkdwn", "text": f"*Critical:* {report.critical_count}"},
                 {"type": "mrkdwn", "text": f"*High:* {report.high_count}"},
-            ]
+            ],
         },
     ]
 
-    severity_emoji = {"critical": ":red_circle:", "high": ":large_orange_circle:", "medium": ":large_yellow_circle:", "low": ":large_blue_circle:"}
+    severity_emoji = {
+        "critical": ":red_circle:",
+        "high": ":large_orange_circle:",
+        "medium": ":large_yellow_circle:",
+        "low": ":large_blue_circle:",
+    }
 
     for adv in report.advisories[:10]:  # Limit to 10 in Slack
         emoji = severity_emoji.get(adv.severity, ":white_circle:")
         kev_tag = " :rotating_light: *ACTIVELY EXPLOITED*" if adv.is_kev else ""
         sc_tag = " :chains: *SUPPLY CHAIN*" if adv.is_supply_chain else ""
 
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": (
-                f"{emoji} *{adv.id}*{kev_tag}{sc_tag}\n"
-                f"{adv.title}\n"
-                f"_Affects:_ `{adv.affected_component}`\n"
-                f"_Action:_ {adv.action_required}"
-            )}
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"{emoji} *{adv.id}*{kev_tag}{sc_tag}\n"
+                        f"{adv.title}\n"
+                        f"_Affects:_ `{adv.affected_component}`\n"
+                        f"_Action:_ {adv.action_required}"
+                    ),
+                },
+            }
+        )
 
-    blocks.append({
-        "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"_Monitoring: {report.tech_stack_summary}_"}]
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"_Monitoring: {report.tech_stack_summary}_"}],
+        }
+    )
 
     return {"blocks": blocks}
 
 
-def save_advisory_report(report: DailyAdvisoryReport, output_path: Path | str = "data/advisories") -> Path:
+def save_advisory_report(
+    report: DailyAdvisoryReport, output_path: Path | str = "data/advisories"
+) -> Path:
     """Save the daily advisory as Markdown."""
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -391,21 +429,23 @@ def save_advisory_report(report: DailyAdvisoryReport, output_path: Path | str = 
         for adv in report.advisories:
             kev = " | ACTIVELY EXPLOITED (CISA KEV)" if adv.is_kev else ""
             sc = " | SUPPLY CHAIN ATTACK" if adv.is_supply_chain else ""
-            lines.extend([
-                f"## {adv.id} — {adv.severity.upper()}{kev}{sc}",
-                "",
-                f"**{adv.title}**",
-                "",
-                f"- **Affects:** {adv.affected_component}",
-                f"- **In your environment:** {adv.affected_resource}",
-                f"- **Action:** {adv.action_required}",
-                f"- **Published:** {adv.published}",
-                "",
-                adv.description[:500] if adv.description else "",
-                "",
-                "---",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"## {adv.id} — {adv.severity.upper()}{kev}{sc}",
+                    "",
+                    f"**{adv.title}**",
+                    "",
+                    f"- **Affects:** {adv.affected_component}",
+                    f"- **In your environment:** {adv.affected_resource}",
+                    f"- **Action:** {adv.action_required}",
+                    f"- **Published:** {adv.published}",
+                    "",
+                    adv.description[:500] if adv.description else "",
+                    "",
+                    "---",
+                    "",
+                ]
+            )
 
     filepath.write_text("\n".join(lines), encoding="utf-8")
     return filepath

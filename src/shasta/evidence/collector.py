@@ -43,7 +43,11 @@ def collect_all_evidence(
         ("iam-password-policy", "IAM password policy configuration", _collect_password_policy),
         ("iam-credential-report", "IAM credential report (all users)", _collect_credential_report),
         ("iam-users-and-policies", "IAM users with their policies and groups", _collect_iam_users),
-        ("s3-bucket-configs", "S3 bucket encryption, versioning, and access settings", _collect_s3_configs),
+        (
+            "s3-bucket-configs",
+            "S3 bucket encryption, versioning, and access settings",
+            _collect_s3_configs,
+        ),
         ("security-groups", "VPC security group rules", _collect_security_groups),
         ("vpc-flow-log-status", "VPC flow log configurations", _collect_vpc_flow_logs),
         ("cloudtrail-status", "CloudTrail trail configurations and status", _collect_cloudtrail),
@@ -126,19 +130,25 @@ def _collect_iam_users(client: AWSClient) -> dict:
             mfa = iam.list_mfa_devices(UserName=username)["MFADevices"]
             keys = iam.list_access_keys(UserName=username)["AccessKeyMetadata"]
 
-            users_data.append({
-                "username": username,
-                "arn": user["Arn"],
-                "created": user["CreateDate"].isoformat(),
-                "attached_policies": [p["PolicyName"] for p in attached],
-                "inline_policies": list(inline),
-                "groups": groups,
-                "mfa_devices": len(mfa),
-                "access_keys": [
-                    {"key_id": k["AccessKeyId"], "status": k["Status"], "created": k["CreateDate"].isoformat()}
-                    for k in keys
-                ],
-            })
+            users_data.append(
+                {
+                    "username": username,
+                    "arn": user["Arn"],
+                    "created": user["CreateDate"].isoformat(),
+                    "attached_policies": [p["PolicyName"] for p in attached],
+                    "inline_policies": list(inline),
+                    "groups": groups,
+                    "mfa_devices": len(mfa),
+                    "access_keys": [
+                        {
+                            "key_id": k["AccessKeyId"],
+                            "status": k["Status"],
+                            "created": k["CreateDate"].isoformat(),
+                        }
+                        for k in keys
+                    ],
+                }
+            )
 
     return {"users": users_data, "total": len(users_data)}
 
@@ -186,14 +196,16 @@ def _collect_security_groups(client: AWSClient) -> dict:
     paginator = ec2.get_paginator("describe_security_groups")
     for page in paginator.paginate():
         for sg in page["SecurityGroups"]:
-            sgs.append({
-                "group_id": sg["GroupId"],
-                "group_name": sg.get("GroupName", ""),
-                "vpc_id": sg.get("VpcId", ""),
-                "description": sg.get("Description", ""),
-                "ingress_rules": sg.get("IpPermissions", []),
-                "egress_rules": sg.get("IpPermissionsEgress", []),
-            })
+            sgs.append(
+                {
+                    "group_id": sg["GroupId"],
+                    "group_name": sg.get("GroupName", ""),
+                    "vpc_id": sg.get("VpcId", ""),
+                    "description": sg.get("Description", ""),
+                    "ingress_rules": sg.get("IpPermissions", []),
+                    "egress_rules": sg.get("IpPermissionsEgress", []),
+                }
+            )
     return {"security_groups": sgs, "total": len(sgs)}
 
 
@@ -205,7 +217,11 @@ def _collect_vpc_flow_logs(client: AWSClient) -> dict:
     return {
         "vpcs": [{"vpc_id": v["VpcId"], "tags": v.get("Tags", [])} for v in vpcs],
         "flow_logs": [
-            {"flow_log_id": fl["FlowLogId"], "resource_id": fl["ResourceId"], "status": fl["FlowLogStatus"]}
+            {
+                "flow_log_id": fl["FlowLogId"],
+                "resource_id": fl["ResourceId"],
+                "status": fl["FlowLogStatus"],
+            }
             for fl in flow_logs
         ],
     }
@@ -270,12 +286,13 @@ def _collect_config_status(client: AWSClient) -> dict:
             {
                 "name": r.get("name"),
                 "all_supported": r.get("recordingGroup", {}).get("allSupported", False),
-                "include_global": r.get("recordingGroup", {}).get("includeGlobalResourceTypes", False),
+                "include_global": r.get("recordingGroup", {}).get(
+                    "includeGlobalResourceTypes", False
+                ),
             }
             for r in recorders
         ],
         "status": [
-            {"name": s.get("name"), "recording": s.get("recording", False)}
-            for s in statuses
+            {"name": s.get("name"), "recording": s.get("recording", False)} for s in statuses
         ],
     }

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS scans (
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL,
     region TEXT NOT NULL,
+    cloud_provider TEXT NOT NULL DEFAULT 'aws',
     domains_scanned TEXT NOT NULL,  -- JSON array
     started_at TEXT NOT NULL,
     completed_at TEXT,
@@ -36,11 +37,12 @@ CREATE TABLE IF NOT EXISTS findings (
     resource_id TEXT NOT NULL,
     region TEXT NOT NULL,
     account_id TEXT NOT NULL,
+    cloud_provider TEXT NOT NULL DEFAULT 'aws',
     remediation TEXT,
     details TEXT,  -- JSON
     soc2_controls TEXT,  -- JSON array
     timestamp TEXT NOT NULL,
-    FOREIGN KEY (scan_id) REFERENCES scans(id)
+    FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS evidence (
@@ -51,7 +53,7 @@ CREATE TABLE IF NOT EXISTS evidence (
     description TEXT NOT NULL,
     data TEXT,  -- JSON
     collected_at TEXT NOT NULL,
-    FOREIGN KEY (scan_id) REFERENCES scans(id)
+    FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS risk_items (
@@ -83,6 +85,9 @@ CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status);
 CREATE INDEX IF NOT EXISTS idx_findings_domain ON findings(domain);
 CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity);
+CREATE INDEX IF NOT EXISTS idx_findings_check_id ON findings(check_id);
+CREATE INDEX IF NOT EXISTS idx_findings_cloud_provider ON findings(cloud_provider);
+CREATE INDEX IF NOT EXISTS idx_scans_cloud_provider ON scans(cloud_provider);
 CREATE INDEX IF NOT EXISTS idx_evidence_scan ON evidence(scan_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_finding ON evidence(finding_id);
 """
@@ -111,16 +116,32 @@ class ShastaDB:
         self._migrate()
 
     def _migrate(self) -> None:
-        """Run schema migrations for new columns."""
-        cursor = self.conn.execute("PRAGMA table_info(findings)")
-        columns = {row["name"] for row in cursor.fetchall()}
-        if "cloud_provider" not in columns:
-            self.conn.execute("ALTER TABLE findings ADD COLUMN cloud_provider TEXT DEFAULT 'aws'")
-        cursor = self.conn.execute("PRAGMA table_info(scans)")
-        columns = {row["name"] for row in cursor.fetchall()}
-        if "cloud_provider" not in columns:
-            self.conn.execute("ALTER TABLE scans ADD COLUMN cloud_provider TEXT DEFAULT 'aws'")
-        self.conn.commit()
+        """Run schema migrations for databases created before cloud_provider was added."""
+        try:
+            cursor = self.conn.execute("PRAGMA table_info(findings)")
+            columns = {row["name"] for row in cursor.fetchall()}
+            if "cloud_provider" not in columns:
+                self.conn.execute(
+                    "ALTER TABLE findings ADD COLUMN cloud_provider TEXT DEFAULT 'aws'"
+                )
+            cursor = self.conn.execute("PRAGMA table_info(scans)")
+            columns = {row["name"] for row in cursor.fetchall()}
+            if "cloud_provider" not in columns:
+                self.conn.execute("ALTER TABLE scans ADD COLUMN cloud_provider TEXT DEFAULT 'aws'")
+            # Ensure new indexes exist (idempotent)
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_findings_check_id ON findings(check_id)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_findings_cloud_provider ON findings(cloud_provider)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scans_cloud_provider ON scans(cloud_provider)"
+            )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     def save_scan(self, scan: ScanResult) -> None:
         """Save a scan result and all its findings."""

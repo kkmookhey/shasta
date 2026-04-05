@@ -30,9 +30,7 @@ def check_inspector_enabled(client: AWSClient, account_id: str, region: str) -> 
     """CC7.1 — Check that AWS Inspector is enabled for vulnerability scanning."""
     try:
         inspector = client.client("inspector2")
-        status = inspector.batch_get_account_status(
-            accountIds=[account_id]
-        )
+        status = inspector.batch_get_account_status(accountIds=[account_id])
 
         accounts = status.get("accounts", [])
         if not accounts:
@@ -69,7 +67,12 @@ def check_inspector_enabled(client: AWSClient, account_id: str, region: str) -> 
                     region=region,
                     account_id=account_id,
                     soc2_controls=["CC7.1"],
-                    details={"status": state, "ec2": ec2_status, "ecr": ecr_status, "lambda": lambda_status},
+                    details={
+                        "status": state,
+                        "ec2": ec2_status,
+                        "ecr": ecr_status,
+                        "lambda": lambda_status,
+                    },
                 )
             ]
         else:
@@ -121,7 +124,10 @@ def check_inspector_findings(client: AWSClient, account_id: str, region: str) ->
                     "CRITICAL": counts.get("critical", 0),
                     "HIGH": counts.get("high", 0),
                     "MEDIUM": counts.get("medium", 0),
-                    "LOW": counts.get("all", 0) - counts.get("critical", 0) - counts.get("high", 0) - counts.get("medium", 0),
+                    "LOW": counts.get("all", 0)
+                    - counts.get("critical", 0)
+                    - counts.get("high", 0)
+                    - counts.get("medium", 0),
                 }
                 total = counts.get("all", 0)
                 break

@@ -47,6 +47,7 @@ class CheckDomain(str, Enum):
     COMPUTE = "compute"
     STORAGE = "storage"
     MONITORING = "monitoring"
+    AI_GOVERNANCE = "ai_governance"
 
 
 class Finding(BaseModel):

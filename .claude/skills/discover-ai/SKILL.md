@@ -1,0 +1,67 @@
+---
+name: discover-ai
+description: Scan cloud accounts and GitHub repos to discover AI/ML services and build an AI system inventory.
+user-invocable: true
+---
+
+# Discover AI
+
+You are helping a founder discover what AI/ML services are running in their cloud accounts and code repositories.
+
+## What to do
+
+Read `shasta.config.json` for `python_cmd`, `aws_profile`, `azure_subscription_id`, and `github_repos`. Use that for all commands (shown as `<PYTHON_CMD>`).
+
+### 1. Discover cloud AI services
+
+**For AWS (if `aws_profile` is set):**
+```bash
+<PYTHON_CMD> -c "
+import json
+from shasta.config import get_aws_client
+from whitney.discovery.aws_ai import discover_aws_ai_services
+
+client = get_aws_client()
+client.validate_credentials()
+result = discover_aws_ai_services(client)
+print(json.dumps(result, indent=2, default=str))
+"
+```
+
+**For Azure (if `azure_subscription_id` is set):**
+```bash
+<PYTHON_CMD> -c "
+import json
+from shasta.config import get_azure_client
+from whitney.discovery.azure_ai import discover_azure_ai_services
+
+client = get_azure_client()
+client.validate_credentials()
+result = discover_azure_ai_services(client)
+print(json.dumps(result, indent=2, default=str))
+"
+```
+
+### 2. Scan GitHub repos for AI usage
+
+If `github_repos` is configured in `shasta.config.json`:
+```bash
+<PYTHON_CMD> -c "
+import json
+from whitney.code.scanner import scan_repository
+from pathlib import Path
+
+findings = scan_repository(Path('.'))  # Scan current project
+for f in findings:
+    print(f'[{f.severity.value.upper()}] {f.check_id}: {f.title}')
+print(f'\nTotal: {len(findings)} finding(s)')
+"
+```
+
+### 3. Present results
+
+Show a clear AI system inventory:
+- Cloud AI services discovered (by service type and count)
+- AI SDKs found in code (with versions)
+- Any security issues found (hardcoded keys, prompt injection risks, etc.)
+- Suggest running `/ai-scan` for full compliance assessment

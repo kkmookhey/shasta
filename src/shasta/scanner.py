@@ -108,12 +108,17 @@ def run_full_scan(
         scan.findings.extend(run_github_checks(github_token, github_repos))
 
     # Enrich findings with compliance framework mappings
-    if framework in ("soc2", "both"):
+    # "both" = SOC 2 + ISO 27001 (backward compat), "all" = all frameworks
+    if framework in ("soc2", "both", "all"):
         enrich_findings_with_controls(scan.findings)
-    if framework in ("iso27001", "both"):
+    if framework in ("iso27001", "both", "all"):
         from shasta.compliance.iso27001_mapper import enrich_findings_with_iso27001
 
         enrich_findings_with_iso27001(scan.findings)
+    if framework in ("hipaa", "all"):
+        from shasta.compliance.hipaa_mapper import enrich_findings_with_hipaa
+
+        enrich_findings_with_hipaa(scan.findings)
 
     # Store multi-cloud info in scan details if both providers scanned
     if client is not None and azure_client is not None:

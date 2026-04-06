@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set active_page = "risks" %}
+
+{% block title %}Risk Register{% endblock %}
+{% block page_title %}Risk Register{% endblock %}
+{% block page_subtitle %}Identified risks and treatment status{% endblock %}
+
+{% block content %}
+{% if not risks %}
+<div class="flex flex-col items-center justify-center py-24">
+  <div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-6">
+    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+    </svg>
+  </div>
+  <h3 class="text-lg font-semibold text-gray-700 mb-2">No risk items</h3>
+  <p class="text-gray-500 text-sm">Use the <code class="bg-gray-100 px-2 py-0.5 rounded text-indigo-600">/risk-register</code> command to generate risk items from scan findings.</p>
+</div>
+{% else %}
+
+<!-- Risk Summary -->
+{% set high_risks = risks | selectattr('risk_level', 'equalto', 'High') | list %}
+{% set medium_risks = risks | selectattr('risk_level', 'equalto', 'Medium') | list %}
+{% set low_risks = risks | selectattr('risk_level', 'equalto', 'Low') | list %}
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Risks</p>
+    <p class="text-2xl font-bold text-gray-800 mt-1">{{ risks | length }}</p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-red-200 p-5">
+    <p class="text-xs font-medium text-red-500 uppercase tracking-wider">High Risk</p>
+    <p class="text-2xl font-bold text-red-600 mt-1">{{ high_risks | length }}</p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-amber-200 p-5">
+    <p class="text-xs font-medium text-amber-500 uppercase tracking-wider">Medium Risk</p>
+    <p class="text-2xl font-bold text-amber-600 mt-1">{{ medium_risks | length }}</p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-emerald-200 p-5">
+    <p class="text-xs font-medium text-emerald-500 uppercase tracking-wider">Low Risk</p>
+    <p class="text-2xl font-bold text-emerald-600 mt-1">{{ low_risks | length }}</p>
+  </div>
+</div>
+
+<!-- Risk Table -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+  <table class="min-w-full divide-y divide-gray-200">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Risk ID</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Title</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Likelihood</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Impact</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Score</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Owner</th>
+      </tr>
+    </thead>
+    <tbody class="bg-white divide-y divide-gray-100">
+      {% for risk in risks %}
+      <tr class="hover:bg-gray-50 transition-colors">
+        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">{{ risk.risk_id }}</td>
+        <td class="px-6 py-4 text-sm text-gray-800 font-medium max-w-sm">{{ risk.title }}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ risk.likelihood }}</td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ risk.impact }}</td>
+        <td class="px-6 py-4 whitespace-nowrap">
+          <span class="text-sm font-bold
+            {% if risk.risk_score >= 6 %}text-red-600
+            {% elif risk.risk_score >= 3 %}text-amber-600
+            {% else %}text-emerald-600{% endif %}">
+            {{ risk.risk_score }}
+          </span>
+        </td>
+        <td class="px-6 py-4 whitespace-nowrap">
+          {% if risk.risk_level == 'High' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">HIGH</span>
+          {% elif risk.risk_level == 'Medium' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">MEDIUM</span>
+          {% else %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">LOW</span>
+          {% endif %}
+        </td>
+        <td class="px-6 py-4 whitespace-nowrap">
+          {% if risk.status == 'open' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Open</span>
+          {% elif risk.status == 'mitigated' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Mitigated</span>
+          {% elif risk.status == 'accepted' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Accepted</span>
+          {% else %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{{ risk.status }}</span>
+          {% endif %}
+        </td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ risk.owner or '--' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

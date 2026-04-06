@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% set active_page = "findings" %}
+
+{% block title %}Findings{% endblock %}
+{% block page_title %}Findings{% endblock %}
+{% block page_subtitle %}Compliance check results{% endblock %}
+
+{% block content %}
+{% if no_data is defined and no_data %}
+<div class="flex flex-col items-center justify-center py-24">
+  <p class="text-gray-500">No scan data available. Run a scan first.</p>
+</div>
+{% else %}
+
+<!-- Filter Bar -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+  <div class="flex flex-wrap items-center gap-4">
+    <div class="flex items-center space-x-2">
+      <label class="text-xs font-medium text-gray-500 uppercase tracking-wider">Cloud</label>
+      <select id="filter-cloud" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              hx-get="/findings" hx-target="#findings-table" hx-include="#filter-cloud, #filter-domain, #filter-severity, #filter-status" name="cloud">
+        <option value="">All</option>
+        <option value="aws" {% if filters.cloud == 'aws' %}selected{% endif %}>AWS</option>
+        <option value="azure" {% if filters.cloud == 'azure' %}selected{% endif %}>Azure</option>
+      </select>
+    </div>
+    <div class="flex items-center space-x-2">
+      <label class="text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</label>
+      <select id="filter-domain" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              hx-get="/findings" hx-target="#findings-table" hx-include="#filter-cloud, #filter-domain, #filter-severity, #filter-status" name="domain">
+        <option value="">All</option>
+        <option value="iam" {% if filters.domain == 'iam' %}selected{% endif %}>IAM</option>
+        <option value="networking" {% if filters.domain == 'networking' %}selected{% endif %}>Networking</option>
+        <option value="encryption" {% if filters.domain == 'encryption' %}selected{% endif %}>Encryption</option>
+        <option value="logging" {% if filters.domain == 'logging' %}selected{% endif %}>Logging</option>
+        <option value="compute" {% if filters.domain == 'compute' %}selected{% endif %}>Compute</option>
+        <option value="storage" {% if filters.domain == 'storage' %}selected{% endif %}>Storage</option>
+        <option value="monitoring" {% if filters.domain == 'monitoring' %}selected{% endif %}>Monitoring</option>
+        <option value="ai_governance" {% if filters.domain == 'ai_governance' %}selected{% endif %}>AI Governance</option>
+      </select>
+    </div>
+    <div class="flex items-center space-x-2">
+      <label class="text-xs font-medium text-gray-500 uppercase tracking-wider">Severity</label>
+      <select id="filter-severity" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              hx-get="/findings" hx-target="#findings-table" hx-include="#filter-cloud, #filter-domain, #filter-severity, #filter-status" name="severity">
+        <option value="">All</option>
+        <option value="critical" {% if filters.severity == 'critical' %}selected{% endif %}>Critical</option>
+        <option value="high" {% if filters.severity == 'high' %}selected{% endif %}>High</option>
+        <option value="medium" {% if filters.severity == 'medium' %}selected{% endif %}>Medium</option>
+        <option value="low" {% if filters.severity == 'low' %}selected{% endif %}>Low</option>
+        <option value="info" {% if filters.severity == 'info' %}selected{% endif %}>Info</option>
+      </select>
+    </div>
+    <div class="flex items-center space-x-2">
+      <label class="text-xs font-medium text-gray-500 uppercase tracking-wider">Status</label>
+      <select id="filter-status" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              hx-get="/findings" hx-target="#findings-table" hx-include="#filter-cloud, #filter-domain, #filter-severity, #filter-status" name="status">
+        <option value="">All</option>
+        <option value="pass" {% if filters.status == 'pass' %}selected{% endif %}>Pass</option>
+        <option value="fail" {% if filters.status == 'fail' %}selected{% endif %}>Fail</option>
+        <option value="partial" {% if filters.status == 'partial' %}selected{% endif %}>Partial</option>
+      </select>
+    </div>
+    <div class="ml-auto text-sm text-gray-500">
+      Showing <span class="font-semibold text-gray-700">{{ shown }}</span> of <span class="font-semibold text-gray-700">{{ total }}</span> findings
+    </div>
+  </div>
+</div>
+
+<!-- Findings Table -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+  <table class="min-w-full divide-y divide-gray-200">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Severity</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Check ID</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Title</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Cloud</th>
+        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Resource</th>
+      </tr>
+    </thead>
+    <tbody id="findings-table" class="bg-white divide-y divide-gray-100">
+      {% for f in findings %}
+      <tr class="hover:bg-gray-50 cursor-pointer transition-colors" onclick="window.location='/findings/{{ f.id }}'">
+        <td class="px-6 py-3 whitespace-nowrap">
+          {% if f.severity.value == 'critical' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">CRITICAL</span>
+          {% elif f.severity.value == 'high' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800">HIGH</span>
+          {% elif f.severity.value == 'medium' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">MEDIUM</span>
+          {% elif f.severity.value == 'low' %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">LOW</span>
+          {% else %}
+          <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600">INFO</span>
+          {% endif %}
+        </td>
+        <td class="px-6 py-3 whitespace-nowrap">
+          {% if f.status.value == 'pass' %}
+          <span class="flex items-center text-sm text-emerald-600 font-medium">
+            <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+            Pass
+          </span>
+          {% elif f.status.value == 'fail' %}
+          <span class="flex items-center text-sm text-red-600 font-medium">
+            <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+            Fail
+          </span>
+          {% else %}
+          <span class="flex items-center text-sm text-amber-600 font-medium">
+            <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+            Partial
+          </span>
+          {% endif %}
+        </td>
+        <td class="px-6 py-3 whitespace-nowrap text-sm font-mono text-gray-600">{{ f.check_id }}</td>
+        <td class="px-6 py-3 text-sm text-gray-800 font-medium max-w-xs truncate">{{ f.title }}</td>
+        <td class="px-6 py-3 whitespace-nowrap">
+          <span class="text-xs font-medium px-2 py-1 rounded bg-slate-100 text-slate-600 uppercase">{{ f.cloud_provider.value }}</span>
+        </td>
+        <td class="px-6 py-3 text-sm text-gray-500 font-mono max-w-xs truncate">{{ f.resource_id[-50:] }}</td>
+      </tr>
+      {% endfor %}
+      {% if not findings %}
+      <tr>
+        <td colspan="6" class="px-6 py-12 text-center text-gray-400">No findings match the selected filters.</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

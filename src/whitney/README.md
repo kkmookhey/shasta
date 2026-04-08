@@ -31,6 +31,53 @@ No startup has good answers today. Whitney gives you those answers — automated
 
 ---
 
+## How Code Scanning Works (Level 1 SAST)
+
+Whitney's code scanner uses [Semgrep](https://semgrep.dev) for AST-based pattern matching, with a regex fallback if Semgrep is not installed. This is "Level 1 SAST" — proper static analysis that understands language grammar, not just text patterns.
+
+### Why AST-based instead of regex?
+
+Regex pattern matching is fast and simple but has known limitations:
+
+| Problem | Regex | Semgrep |
+|---------|-------|---------|
+| `# api_key = "sk-..."` in a comment | Matches (false positive) | Skipped (AST-aware) |
+| `Tool(func=lambda c: exec(c))` — dangerous? | Only matches if `exec` is within 20 lines (fragile) | `pattern-inside: Tool(...)` — structural containment |
+| `model="gpt-4"` with extra whitespace or different quotes | Formatting-dependent | AST-normalized |
+| Route + inference + missing auth decorator | 3 separate regex scans with sliding windows | Single rule with `pattern-not-inside: @login_required` |
+
+### Dual-engine architecture
+
+```
+scan_repository(repo_path)
+  │
+  ├── If Semgrep installed:
+  │     ├── Run 13 Semgrep YAML rules (AST-based)
+  │     └── Run 2 Python checks (rate limiting, outdated SDK)
+  │
+  └── If Semgrep NOT installed (graceful fallback):
+        └── Run all 15 Python regex checks (original engine)
+```
+
+The 2 checks that stay as Python need logic Semgrep doesn't model well:
+
+- `check_no_rate_limiting` — file-level memoization (skip entire file if rate limiting found anywhere)
+- `check_outdated_ai_sdk` — dependency file parsing + version constraint comparison
+
+### Install with Semgrep
+
+```bash
+pip install -e ".[semgrep]"
+```
+
+Or run without it — the regex fallback ensures Whitney works for everyone.
+
+### Still deterministic
+
+Semgrep is an AST pattern matcher, not an LLM. Same code + same rules = identical findings every time. Whitney's "no LLM in the pipeline" guarantee is unchanged — see [TRUST.md](TRUST.md) for verification.
+
+---
+
 ## What Whitney Does
 
 ### 1. Code Repository Scanning (15 checks)

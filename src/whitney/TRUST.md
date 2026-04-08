@@ -144,12 +144,32 @@ Every Whitney module is pure deterministic code:
 | Policy generator | Produces governance policy documents | Jinja2 template rendering with company name substitution |
 | AI SBOM | Inventories AI SDKs, models, cloud services | File parsing + dict construction, CycloneDX JSON output |
 
+**Detection engines used by the code scanner:**
+
+| Engine | Used for | What it is |
+|--------|---------|-----------|
+| **Semgrep** | 13 of 15 code checks (when installed) | AST-based pattern matching. Open source. Used by Trail of Bits, GitLab, Snyk Code. Deterministic — same input always produces same output. |
+| **Python regex** | 2 file-level checks always; all 15 if Semgrep not installed | `re.compile()` patterns evaluated against file contents. Deterministic. |
+
+The 2 checks that always run as Python are `check_no_rate_limiting` (needs file-level memoization) and `check_outdated_ai_sdk` (needs dependency parsing + version constraint comparison).
+
 **Why this matters:**
 
-1. **Reproducibility.** Same code + same infrastructure = identical findings. No model temperature, no token sampling, no run-to-run variance.
-2. **Auditability.** Every finding traces to a specific regex pattern, API response, or dict lookup. An auditor can inspect the check function and understand exactly why a finding was produced.
+1. **Reproducibility.** Same code + same infrastructure = identical findings. No model temperature, no token sampling, no run-to-run variance. Both Semgrep and regex are deterministic.
+2. **Auditability.** Every finding traces to a specific Semgrep rule (a YAML file you can read), regex pattern (a Python `re.compile()` call), API response, or dict lookup. An auditor can inspect the check definition and understand exactly why a finding was produced.
 3. **No hallucination risk.** The scanner cannot invent findings that don't exist or miss findings that do. Pattern matched or not matched — binary.
 4. **No cost per scan.** No API tokens consumed. Scans can run as frequently as needed at zero marginal cost.
+
+**Why Semgrep instead of regex alone:**
+
+Semgrep parses code into an AST (abstract syntax tree) before matching. This catches what regex can't:
+
+- Won't match patterns inside comments or docstrings (regex would)
+- `Tool(func=exec)` — Semgrep's `pattern-inside: Tool(...)` knows the dangerous call is structurally inside the tool definition. Regex can only check "within N lines."
+- Handles formatting differences: `model="gpt-4"`, `model = "gpt-4"`, `model =\n  "gpt-4"` are all the same AST node.
+- `pattern-not-inside: @login_required` — Semgrep can express "model endpoint that is NOT decorated with auth" as a single structural query. Regex needs three separate scans with sliding windows.
+
+If Semgrep is not installed, Whitney falls back to regex automatically. No installation required, but the AST engine is more precise.
 
 Most AI security vendors (Straiker, Lakera, CalypsoAI, Promptfoo) use LLMs in their detection pipelines. This gives them flexibility but introduces non-determinism. Whitney chose the opposite trade-off: less flexible, but every result is explainable and reproducible.
 

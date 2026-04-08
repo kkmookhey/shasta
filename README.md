@@ -48,7 +48,9 @@ Every check produces a `Finding` object with: severity, compliance status, resou
 
 ### Deterministic by Design — No LLM in the Detection Pipeline
 
-Shasta and Whitney are **100% deterministic**. Every finding is produced by regex pattern matching, AWS/Azure SDK API calls, dictionary lookups, and arithmetic. There is no LLM inference, no probabilistic model, and no token consumption in the scanning, scoring, mapping, policy generation, or SBOM output.
+Shasta and Whitney are **100% deterministic**. Every finding is produced by Semgrep AST-based pattern matching (with regex fallback), AWS/Azure SDK API calls, dictionary lookups, and arithmetic. There is no LLM inference, no probabilistic model, and no token consumption in the scanning, scoring, mapping, policy generation, or SBOM output.
+
+Whitney's code scanner uses [Semgrep](https://semgrep.dev) for proper AST-based static analysis (Level 1 SAST) when installed, and falls back to regex if not. Semgrep is itself deterministic — it parses code into an abstract syntax tree and matches structural patterns, so findings are reproducible across runs. See [Whitney's TRUST.md](src/whitney/TRUST.md) for the full breakdown.
 
 Same infrastructure + same scan = same results, every time.
 

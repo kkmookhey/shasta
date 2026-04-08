@@ -1,0 +1,20 @@
+rules:
+  - id: code-pii-in-prompts-ssn
+    pattern-regex: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+    paths:
+      include:
+        - "**/*prompt*"
+        - "**/*chat*"
+        - "**/*llm*"
+        - "**/*ai*"
+        - "**/app.*"
+    message: >
+      Potential SSN pattern found in AI-related code.
+      Remove PII from prompts before sending to AI models.
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    metadata:
+      check_id: code-pii-in-prompts
+      whitney_severity: high
+      soc2_controls: ["CC6.1", "P6.1"]
+      remediation: "Remove PII from prompts. Use anonymisation before sending data to AI models."

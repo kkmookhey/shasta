@@ -1,0 +1,24 @@
+rules:
+  - id: code-ai-key-in-env-file
+    patterns:
+      - pattern-regex: ^(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|HUGGINGFACE_TOKEN|COHERE_API_KEY|AZURE_OPENAI_KEY|AI_API_KEY)\s*=\s*.+
+    message: >
+      AI API key found in .env file. Add .env to .gitignore.
+      Use a secrets manager for production deployments.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "*.env"
+        - ".env"
+        - ".env.local"
+        - ".env.production"
+      exclude:
+        - "*.env.example"
+        - "*.env.sample"
+        - "*.env.template"
+    metadata:
+      check_id: code-ai-key-in-env-file
+      whitney_severity: critical
+      soc2_controls: ["CC6.1"]
+      remediation: "Add .env to .gitignore. Use a secrets manager for production deployments."

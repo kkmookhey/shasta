@@ -137,7 +137,7 @@ Every Whitney module is pure deterministic code:
 
 | Module | What it does | How |
 |--------|-------------|-----|
-| Code scanner | Finds AI security issues in source code | Regex pattern matching against file contents |
+| Code scanner | Finds AI security issues in source code | Semgrep AST-based pattern matching (13 checks) + regex fallback / Python (2 checks for file-level logic) |
 | Cloud checks | Evaluates AWS/Azure AI service configuration | boto3 / Azure SDK describe/list API calls |
 | Compliance mapper | Maps findings to ISO 42001, EU AI Act, OWASP, NIST, MITRE | Dictionary lookups by check_id |
 | Scorer | Calculates compliance percentages and grades | Arithmetic: (pass + partial*0.5) / assessed * 100 |

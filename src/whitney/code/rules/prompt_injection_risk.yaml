@@ -1,0 +1,28 @@
+rules:
+  - id: code-prompt-injection-risk
+    patterns:
+      - pattern: |
+          $CLIENT.chat.completions.create(..., messages=[..., {..., "content": f"...{$INPUT}..."}, ...], ...)
+    message: >
+      User input may be interpolated into an AI prompt via f-string.
+      This enables prompt injection attacks.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: high
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: "Sanitise user input before including in prompts. Use structured message APIs rather than string interpolation."
+
+  - id: code-prompt-injection-risk-fstring-in-dict
+    pattern-regex: '"content"\s*:\s*f"[^"]*\{(?:request|req|user_msg|user_message|user_input|message|msg|input)'
+    message: >
+      User input appears to be interpolated into an AI prompt content field.
+      This enables prompt injection attacks.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: high
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: "Sanitise user input before including in prompts. Use structured message APIs."

@@ -1,0 +1,13 @@
+rules:
+  - id: code-training-data-http
+    pattern-regex: "(?:pd\\.read_csv|requests\\.get|urllib\\.request\\.urlopen)\\s*\\(\\s*[\"']http://"
+    message: >
+      Data fetched over unencrypted HTTP. Use HTTPS for data in transit.
+      Encrypt data at rest.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-training-data-unencrypted
+      whitney_severity: medium
+      soc2_controls: ["CC6.1", "CC6.7"]
+      remediation: "Use HTTPS for remote data. Encrypt training data at rest."

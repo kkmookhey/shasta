@@ -1,0 +1,29 @@
+rules:
+  - id: code-model-endpoint-public
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @app.post(...)
+              def $FUNC(...):
+                  ...
+                  $MODEL.predict(...)
+          - pattern: |
+              @app.post(...)
+              def $FUNC(...):
+                  ...
+                  $CLIENT.chat.completions.create(...)
+          - pattern: |
+              @app.route(...)
+              def $FUNC(...):
+                  ...
+                  $MODEL.predict(...)
+    message: >
+      Model inference endpoint may lack authentication. Verify that auth
+      middleware or decorators protect this AI model endpoint.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-model-endpoint-public
+      whitney_severity: high
+      soc2_controls: ["CC6.1", "CC6.2"]
+      remediation: "Add authentication middleware or decorators to AI model endpoints."

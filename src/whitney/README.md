@@ -8,7 +8,9 @@ Part of the Shasta mountain range: **Shasta** (14,179 ft) secures your cloud. **
 
 ### Deterministic by Design
 
-Whitney uses **zero LLM calls**. Every finding is produced by regex pattern matching, AWS/Azure SDK API calls, dictionary lookups, and arithmetic. There is no probabilistic model, no prompt, no token consumption in the scanning pipeline.
+Whitney uses **zero LLM calls**. Every finding is produced by Semgrep AST-based pattern matching (with regex fallback), AWS/Azure SDK API calls, dictionary lookups, and arithmetic. There is no probabilistic model, no prompt, no token consumption in the scanning pipeline.
+
+The code scanner uses a **dual-engine architecture**: when [Semgrep](https://semgrep.dev) is installed, 13 of the 15 code checks run as AST-aware Semgrep rules (more precise than regex, immune to formatting issues, won't match in comments). The 2 checks that need file-level memoization or version constraint comparison stay as Python. If Semgrep is not installed, all 15 checks fall back to the original regex engine.
 
 This is a deliberate architectural choice and a differentiator. Most AI security vendors (Straiker, Lakera, CalypsoAI) use LLMs in their detection pipeline, which means their results vary between runs. Whitney's results are **100% reproducible**: same code + same infrastructure = same findings, every time.
 

@@ -1,0 +1,31 @@
+rules:
+  - id: code-ai-logging-insufficient
+    patterns:
+      - pattern-either:
+          - pattern: $CLIENT.chat.completions.create(...)
+          - pattern: $CLIENT.messages.create(...)
+          - pattern: $CLIENT.invoke(...)
+          - pattern: $CHAIN.invoke(...)
+      - pattern-not-inside: |
+          logger.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logger.info(...)
+      - pattern-not-inside: |
+          logging.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logging.info(...)
+    message: >
+      AI API call without apparent logging nearby. AI interactions should be
+      logged for observability and audit. Add logging capturing request
+      metadata, response status, latency, and token usage.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-ai-logging-insufficient
+      whitney_severity: medium
+      soc2_controls: ["CC7.2", "CC7.3"]
+      remediation: "Add logging around AI API calls capturing: request metadata, response status, latency, and token usage."

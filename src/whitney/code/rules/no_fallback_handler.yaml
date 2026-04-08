@@ -1,0 +1,23 @@
+rules:
+  - id: code-no-fallback-handler
+    patterns:
+      - pattern-either:
+          - pattern: $CLIENT.chat.completions.create(...)
+          - pattern: $CLIENT.messages.create(...)
+          - pattern: $CLIENT.invoke(...)
+      - pattern-not-inside: |
+          try:
+              ...
+          except ...:
+              ...
+    message: >
+      AI API call is not wrapped in try/except error handling. AI API calls
+      can fail due to rate limits, timeouts, or service outages. Add fallback
+      behavior.
+    severity: INFO
+    languages: [python]
+    metadata:
+      check_id: code-no-fallback-handler
+      whitney_severity: low
+      soc2_controls: ["CC7.2", "CC7.5"]
+      remediation: "Wrap AI API calls in try/except blocks with fallback behaviour for timeouts and rate limits."

@@ -1,0 +1,18 @@
+rules:
+  - id: code-meta-prompt-exposed
+    pattern-regex: "(?:You are |Your role is |Your task is |As an AI |Instructions:)"
+    message: >
+      System prompt with instructional language found in source code.
+      If this file serves routes, users may extract the prompt.
+      Store system prompts in environment variables or a config service.
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/README*"
+    metadata:
+      check_id: code-meta-prompt-exposed
+      whitney_severity: medium
+      soc2_controls: ["CC6.1"]
+      remediation: "Store system prompts in environment variables or a config service, not inline in route handlers."

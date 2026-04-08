@@ -1,0 +1,14 @@
+rules:
+  - id: code-no-model-versioning
+    pattern-regex: model\s*=\s*["'](?:gpt-4|gpt-3\.5-turbo|gpt-4-turbo|gpt-4o|claude-3-opus|claude-3-sonnet|claude-3-haiku)["']
+    message: >
+      AI model version is not pinned. Using generic model names means the
+      model can change without notice, affecting reproducibility.
+      Pin with a date suffix (e.g., 'gpt-4-0613').
+    severity: INFO
+    languages: [python, javascript, typescript]
+    metadata:
+      check_id: code-no-model-versioning
+      whitney_severity: low
+      soc2_controls: ["CC8.1"]
+      remediation: "Pin model versions with date suffixes (e.g., gpt-4-0613) for reproducibility."

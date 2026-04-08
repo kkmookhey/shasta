@@ -1,0 +1,21 @@
+rules:
+  - id: code-rag-no-access-control
+    patterns:
+      - pattern-either:
+          - pattern: $STORE.similarity_search($QUERY)
+          - pattern: $STORE.similarity_search($QUERY, ...)
+          - pattern: $COLLECTION.search($QUERY)
+          - pattern: $COLLECTION.search($QUERY, ...)
+      - pattern-not: $STORE.similarity_search($QUERY, ..., filter=..., ...)
+      - pattern-not: $STORE.similarity_search($QUERY, ..., where=..., ...)
+    message: >
+      Vector database query without access control filtering.
+      Add user-level or tenant-level metadata filters to prevent cross-tenant
+      data access in RAG pipelines.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-rag-no-access-control
+      whitney_severity: medium
+      soc2_controls: ["CC6.1", "CC6.3"]
+      remediation: "Add user-level or tenant-level metadata filters to vector DB queries to prevent cross-tenant data access."

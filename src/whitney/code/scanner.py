@@ -11,7 +11,8 @@ import subprocess
 from pathlib import Path
 
 from shasta.evidence.models import Finding
-from whitney.code.checks import ALL_CHECKS
+from whitney.code.checks import ALL_CHECKS, PYTHON_ONLY_CHECKS
+from whitney.code.semgrep_runner import run_semgrep, semgrep_available
 
 logger = logging.getLogger(__name__)
 
@@ -50,20 +51,39 @@ def scan_repository(
     logger.info("Scanning repository at %s", repo_path)
 
     findings: list[Finding] = []
-    for check_fn in ALL_CHECKS:
-        check_name = check_fn.__name__
-        try:
-            logger.debug("Running check: %s", check_name)
-            results = check_fn(repo_path)
-            findings.extend(results)
-            logger.info("Check %s completed: %d finding(s)", check_name, len(results))
-        except Exception:
-            logger.exception("Check %s failed with an unexpected error", check_name)
+
+    if semgrep_available():
+        # Dual-engine mode: Semgrep for 13 checks + Python for 2
+        logger.info("Semgrep available — using AST-based scanning engine")
+        semgrep_findings = run_semgrep(repo_path)
+        findings.extend(semgrep_findings)
+        logger.info("Semgrep engine: %d finding(s)", len(semgrep_findings))
+
+        # Run the 2 Python-only checks (rate limiting + outdated SDK)
+        for check_fn in PYTHON_ONLY_CHECKS:
+            check_name = check_fn.__name__
+            try:
+                results = check_fn(repo_path)
+                findings.extend(results)
+                logger.info("Python check %s: %d finding(s)", check_name, len(results))
+            except Exception:
+                logger.exception("Check %s failed", check_name)
+    else:
+        # Fallback: all 15 regex-based checks
+        logger.info("Semgrep not available — falling back to regex engine")
+        for check_fn in ALL_CHECKS:
+            check_name = check_fn.__name__
+            try:
+                logger.debug("Running check: %s", check_name)
+                results = check_fn(repo_path)
+                findings.extend(results)
+                logger.info("Check %s completed: %d finding(s)", check_name, len(results))
+            except Exception:
+                logger.exception("Check %s failed with an unexpected error", check_name)
 
     logger.info(
-        "Scan complete: %d total finding(s) across %d checks",
+        "Scan complete: %d total finding(s)",
         len(findings),
-        len(ALL_CHECKS),
     )
     return findings
 

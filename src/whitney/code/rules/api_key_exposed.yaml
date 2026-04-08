@@ -1,0 +1,54 @@
+rules:
+  - id: code-ai-api-key-exposed-openai
+    pattern-regex: (?:api_key|OPENAI_API_KEY|API_KEY)\s*=\s*["']sk-[a-zA-Z0-9]{20,}["']
+    message: >
+      OpenAI API key hardcoded in source code.
+      Move to environment variable or secrets manager. Rotate the exposed key immediately.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/README*"
+        - "**/docs/**"
+    metadata:
+      check_id: code-ai-api-key-exposed
+      whitney_severity: critical
+      soc2_controls: ["CC6.1"]
+      remediation: "Move the key to an environment variable or secrets manager. Rotate the exposed key immediately."
+
+  - id: code-ai-api-key-exposed-anthropic
+    pattern-regex: (?:api_key|ANTHROPIC_API_KEY|API_KEY)\s*=\s*["']sk-ant-[a-zA-Z0-9\-]{20,}["']
+    message: >
+      Anthropic API key hardcoded in source code.
+      Move to environment variable or secrets manager. Rotate immediately.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/README*"
+        - "**/docs/**"
+    metadata:
+      check_id: code-ai-api-key-exposed
+      whitney_severity: critical
+      soc2_controls: ["CC6.1"]
+      remediation: "Move the key to an environment variable or secrets manager. Rotate the exposed key immediately."
+
+  - id: code-ai-api-key-exposed-huggingface
+    pattern-regex: (?:api_key|HUGGINGFACE_TOKEN|HF_TOKEN)\s*=\s*["']hf_[a-zA-Z0-9]{20,}["']
+    message: >
+      HuggingFace token hardcoded in source code.
+      Move to environment variable or secrets manager.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/README*"
+        - "**/docs/**"
+    metadata:
+      check_id: code-ai-api-key-exposed
+      whitney_severity: critical
+      soc2_controls: ["CC6.1"]
+      remediation: "Move the key to an environment variable or secrets manager. Rotate the exposed key immediately."

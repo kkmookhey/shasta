@@ -1,0 +1,35 @@
+rules:
+  - id: code-no-output-validation
+    patterns:
+      - pattern-either:
+          - pattern: return response.choices[0].message.content
+          - pattern: return completion.choices[0].message.content
+          - pattern: return response.content[0].text
+          - pattern: |
+              $OUTPUT = response.choices[0].message.content
+              ...
+              return $OUTPUT
+          - pattern: |
+              $OUTPUT = response.content[0].text
+              ...
+              return $OUTPUT
+      - pattern-not-inside: |
+          $VALIDATED = sanitize(...)
+          ...
+      - pattern-not-inside: |
+          $VALIDATED = validate(...)
+          ...
+      - pattern-not-inside: |
+          $VALIDATED = json.loads(...)
+          ...
+    message: >
+      LLM response content is returned without validation or sanitization.
+      Validate and sanitize LLM outputs before use. Parse structured responses
+      with Pydantic or JSON schema.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      check_id: code-no-output-validation
+      whitney_severity: high
+      soc2_controls: ["CC7.2"]
+      remediation: "Validate and sanitise LLM outputs before using them. Parse structured responses with Pydantic or JSON schema."

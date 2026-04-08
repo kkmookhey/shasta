@@ -1113,3 +1113,11 @@ ALL_CHECKS = [
     check_no_model_versioning,
     check_no_fallback_handler,
 ]
+
+# Checks that cannot be expressed as Semgrep rules and must always run as Python.
+# - check_no_rate_limiting: file-level memoization (skip file if rate limiting exists anywhere)
+# - check_outdated_ai_sdk: dependency file parsing + version constraint comparison
+PYTHON_ONLY_CHECKS = [
+    check_no_rate_limiting,
+    check_outdated_ai_sdk,
+]

@@ -11,6 +11,22 @@ from whitney.compliance.iso42001 import (
     ISO42001_CONTROLS,
     get_iso42001_controls_for_check,
 )
+from whitney.compliance.mitre_atlas import (
+    ATLAS_TECHNIQUES,
+    get_atlas_techniques_for_check,
+)
+from whitney.compliance.nist_ai_rmf import (
+    NIST_AI_RMF_CATEGORIES,
+    get_nist_ai_rmf_categories_for_check,
+)
+from whitney.compliance.owasp_agentic import (
+    OWASP_AGENTIC_TOP10,
+    get_owasp_agentic_risks_for_check,
+)
+from whitney.compliance.owasp_llm_top10 import (
+    OWASP_LLM_TOP10,
+    get_owasp_llm_risks_for_check,
+)
 
 
 def enrich_findings_with_ai_controls(findings: list[Finding]) -> list[Finding]:
@@ -27,6 +43,22 @@ def enrich_findings_with_ai_controls(findings: list[Finding]) -> list[Finding]:
         # EU AI Act
         eu_ai_act_obligations = get_eu_ai_act_obligations_for_check(finding.check_id)
         finding.details["eu_ai_act"] = [o.id for o in eu_ai_act_obligations]
+
+        # OWASP LLM Top 10
+        owasp_llm_risks = get_owasp_llm_risks_for_check(finding.check_id)
+        finding.details["owasp_llm_top10"] = [r.id for r in owasp_llm_risks]
+
+        # OWASP Agentic AI Top 10
+        owasp_agentic_risks = get_owasp_agentic_risks_for_check(finding.check_id)
+        finding.details["owasp_agentic"] = [r.id for r in owasp_agentic_risks]
+
+        # NIST AI RMF
+        nist_categories = get_nist_ai_rmf_categories_for_check(finding.check_id)
+        finding.details["nist_ai_rmf"] = [c.id for c in nist_categories]
+
+        # MITRE ATLAS
+        atlas_techniques = get_atlas_techniques_for_check(finding.check_id)
+        finding.details["mitre_atlas"] = [t.id for t in atlas_techniques]
 
     return findings
 
@@ -130,3 +162,97 @@ def get_eu_ai_act_obligation_summary(findings: list[Finding]) -> dict[str, dict]
             data["overall_status"] = "not_assessed"
 
     return summary
+
+
+def _build_summary(
+    items: dict,
+    findings: list[Finding],
+    get_for_check_fn,
+    *,
+    extra_fields: dict | None = None,
+) -> dict[str, dict]:
+    """Generic summary builder — shared logic for all frameworks.
+
+    *items* is the framework's control/risk/category dict.
+    *get_for_check_fn* maps a check_id to matched framework items.
+    *extra_fields* adds framework-specific keys to each summary entry.
+    """
+    summary: dict[str, dict] = {}
+
+    for item_id, item in items.items():
+        check_ids = getattr(item, "check_ids", [])
+        requires_policy = getattr(item, "requires_policy", False)
+        entry = {
+            "id": item_id,
+            "title": item.title,
+            "guidance": getattr(item, "guidance", ""),
+            "has_automated_checks": bool(check_ids),
+            "findings": [],
+            "pass_count": 0,
+            "fail_count": 0,
+            "partial_count": 0,
+            "overall_status": "not_assessed",
+        }
+        if requires_policy:
+            entry["requires_policy"] = True
+        if extra_fields:
+            for key, attr in extra_fields.items():
+                entry[key] = getattr(item, attr, "")
+        summary[item_id] = entry
+
+    for finding in findings:
+        matched = get_for_check_fn(finding.check_id)
+        for m in matched:
+            if m.id in summary:
+                summary[m.id]["findings"].append(finding)
+                match finding.status.value:
+                    case "pass":
+                        summary[m.id]["pass_count"] += 1
+                    case "fail":
+                        summary[m.id]["fail_count"] += 1
+                    case "partial":
+                        summary[m.id]["partial_count"] += 1
+
+    for data in summary.values():
+        if data["fail_count"] > 0:
+            data["overall_status"] = "fail"
+        elif data["partial_count"] > 0:
+            data["overall_status"] = "partial"
+        elif data["pass_count"] > 0:
+            data["overall_status"] = "pass"
+        elif data.get("requires_policy") and not data["has_automated_checks"]:
+            data["overall_status"] = "requires_policy"
+        else:
+            data["overall_status"] = "not_assessed"
+
+    return summary
+
+
+def get_owasp_llm_summary(findings: list[Finding]) -> dict[str, dict]:
+    """Aggregate findings by OWASP LLM Top 10 risk item."""
+    return _build_summary(OWASP_LLM_TOP10, findings, get_owasp_llm_risks_for_check)
+
+
+def get_owasp_agentic_summary(findings: list[Finding]) -> dict[str, dict]:
+    """Aggregate findings by OWASP Agentic AI Top 10 risk item."""
+    return _build_summary(OWASP_AGENTIC_TOP10, findings, get_owasp_agentic_risks_for_check)
+
+
+def get_nist_ai_rmf_summary(findings: list[Finding]) -> dict[str, dict]:
+    """Aggregate findings by NIST AI RMF category."""
+    return _build_summary(
+        NIST_AI_RMF_CATEGORIES,
+        findings,
+        get_nist_ai_rmf_categories_for_check,
+        extra_fields={"function": "function"},
+    )
+
+
+def get_mitre_atlas_summary(findings: list[Finding]) -> dict[str, dict]:
+    """Aggregate findings by MITRE ATLAS technique."""
+    return _build_summary(
+        ATLAS_TECHNIQUES,
+        findings,
+        get_atlas_techniques_for_check,
+        extra_fields={"tactic": "tactic"},
+    )

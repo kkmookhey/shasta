@@ -1,0 +1,121 @@
+name: integrity
+
+# Mechanically enforces the engineering principles in ENGINEERING_PRINCIPLES.md.
+# This workflow is the load-bearing layer that prevents doc-vs-code drift,
+# stub regressions, and registry/template count phantoms from shipping.
+#
+# Triggers on every PR against main and on every push to main. Failing this
+# workflow blocks merge unless a maintainer overrides.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doc-drift-and-smoke:
+    name: Doc-drift integrity + AWS/Azure smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Doc-vs-code drift integrity tests
+        # The single most load-bearing test in the repo. Catches the
+        # "22 Azure Terraform templates" phantom failure mode by AST-counting
+        # every check function, registry entry, and template, then asserting
+        # the README claims match. See ENGINEERING_PRINCIPLES.md #1.
+        run: pytest tests/test_integrity/ -v
+
+      - name: AWS module smoke tests
+        # Verifies every aws/*.py module imports cleanly, every run_all_*
+        # runner has the expected signature, the deprecated Lambda runtime
+        # table is current, and every Azure-mirrored module has matching
+        # Terraform templates that render. See ENGINEERING_PRINCIPLES.md #2.
+        run: pytest tests/test_aws/test_aws_sweep_smoke.py -v
+
+      - name: Azure module smoke tests
+        # Same shape, Azure side. Verifies the diagnostic-settings matrix is
+        # well-formed, the Defender required-plans table is complete, and
+        # the Activity Log alert mapping covers the CIS 5.2.x set.
+        run: pytest tests/test_azure/test_smoke.py -v
+
+      - name: Whitney integrity tests (anti-stub + anti-LLM)
+        # Verifies no Whitney check function is a stub, the framework control
+        # counts match the README, and zero LLM calls exist in the detection
+        # pipeline. See ENGINEERING_PRINCIPLES.md #11.
+        run: pytest tests/test_whitney/test_integrity.py -v
+
+  full-suite:
+    name: Full pytest suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: doc-drift-and-smoke
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run full pytest suite
+        run: pytest -q --ignore=tests/integration
+
+  lint:
+    name: ruff lint + format check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: ruff check (style + bugs)
+        run: ruff check src/ tests/ --output-format=github
+
+      - name: ruff format check
+        # Fails if any file would be reformatted. Run `ruff format` locally
+        # to fix.
+        run: ruff format --check src/ tests/

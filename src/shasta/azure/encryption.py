@@ -24,7 +24,13 @@ def run_all_azure_encryption_checks(client: AzureClient) -> list[Finding]:
 
     findings.extend(check_disk_encryption(client, sub_id, region))
     findings.extend(check_sql_tde(client, sub_id, region))
+    findings.extend(check_sql_auditing(client, sub_id, region))
+    findings.extend(check_sql_entra_admin(client, sub_id, region))
+    findings.extend(check_sql_min_tls(client, sub_id, region))
     findings.extend(check_keyvault_config(client, sub_id, region))
+    findings.extend(check_keyvault_rbac_mode(client, sub_id, region))
+    findings.extend(check_keyvault_public_access(client, sub_id, region))
+    findings.extend(check_keyvault_key_expiry(client, sub_id, region))
     findings.extend(check_sql_public_access(client, sub_id, region))
 
     return findings
@@ -453,4 +459,453 @@ def check_sql_public_access(
             )
         )
 
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS Azure v3.0 Encryption / SQL / Key Vault checks (Stage 1 additions)
+# ---------------------------------------------------------------------------
+
+
+def _iter_sql_servers(client: AzureClient):
+    """Yield (sql_client, server, server_rg) for every SQL server in the subscription."""
+    try:
+        from azure.mgmt.sql import SqlManagementClient
+    except ImportError:
+        return
+    sql = client.mgmt_client(SqlManagementClient)
+    for server in sql.servers.list():
+        sid = server.id or ""
+        rg = sid.split("/resourceGroups/")[1].split("/")[0] if "/resourceGroups/" in sid else ""
+        yield sql, server, rg
+
+
+def check_sql_auditing(client: AzureClient, subscription_id: str, region: str) -> list[Finding]:
+    """[CIS 4.1.1] Server-level SQL auditing must be enabled with retention ≥ 90 days."""
+    findings: list[Finding] = []
+    found_any = False
+    try:
+        for sql, server, rg in _iter_sql_servers(client):
+            found_any = True
+            try:
+                audit = sql.server_blob_auditing_policies.get(rg, server.name)
+            except Exception:
+                continue
+            state = (getattr(audit, "state", "") or "Disabled").lower()
+            retention = int(getattr(audit, "retention_days", 0) or 0)
+            ok = state == "enabled" and (retention == 0 or retention >= 90)
+            if ok:
+                findings.append(
+                    Finding(
+                        check_id="azure-sql-auditing",
+                        title=f"SQL Server '{server.name}' auditing enabled (retention {retention or 'unlimited'} d)",
+                        description="Server-level blob auditing is enabled with adequate retention.",
+                        severity=Severity.INFO,
+                        status=ComplianceStatus.PASS,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::Sql::Server",
+                        resource_id=server.id or "",
+                        region=server.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        soc2_controls=["CC7.1", "CC7.2"],
+                        cis_azure_controls=["4.1.1", "4.1.6"],
+                        details={"server": server.name, "retention_days": retention},
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        check_id="azure-sql-auditing",
+                        title=f"SQL Server '{server.name}' auditing not configured to spec",
+                        description=(
+                            f"Auditing state={state}, retention={retention}d. CIS requires "
+                            "auditing enabled with retention ≥ 90 days. Without server-level "
+                            "auditing, anomalous queries and DDL changes leave no trace."
+                        ),
+                        severity=Severity.HIGH,
+                        status=ComplianceStatus.FAIL,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::Sql::Server",
+                        resource_id=server.id or "",
+                        region=server.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        remediation=(
+                            "Enable server-level auditing and target Log Analytics with retention "
+                            "≥90 days. Portal: SQL Server > Auditing > Enable > Log Analytics."
+                        ),
+                        soc2_controls=["CC7.1", "CC7.2"],
+                        cis_azure_controls=["4.1.1", "4.1.6"],
+                        details={
+                            "server": server.name,
+                            "state": state,
+                            "retention_days": retention,
+                        },
+                    )
+                )
+    except Exception as e:
+        return [
+            Finding(
+                check_id="azure-sql-auditing",
+                title="SQL auditing check failed",
+                description=f"Could not enumerate SQL auditing policies: {e}",
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.ENCRYPTION,
+                resource_type="Azure::Sql::Server",
+                resource_id=f"/subscriptions/{subscription_id}/sqlServers",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1", "CC7.2"],
+                cis_azure_controls=["4.1.1"],
+            )
+        ]
+    if not found_any:
+        return []
+    return findings
+
+
+def check_sql_entra_admin(client: AzureClient, subscription_id: str, region: str) -> list[Finding]:
+    """[CIS 4.1.3] SQL Server should have an Entra ID (Azure AD) admin configured."""
+    findings: list[Finding] = []
+    try:
+        for sql, server, rg in _iter_sql_servers(client):
+            try:
+                admins = list(sql.server_azure_ad_administrators.list_by_server(rg, server.name))
+            except Exception:
+                admins = []
+            if admins:
+                findings.append(
+                    Finding(
+                        check_id="azure-sql-entra-admin",
+                        title=f"SQL Server '{server.name}' has Entra ID admin",
+                        description=f"Entra ID admin configured: {admins[0].login or 'unknown'}.",
+                        severity=Severity.INFO,
+                        status=ComplianceStatus.PASS,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::Sql::Server",
+                        resource_id=server.id or "",
+                        region=server.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        soc2_controls=["CC6.1", "CC6.2"],
+                        cis_azure_controls=["4.1.3"],
+                        details={"server": server.name, "admin": admins[0].login or ""},
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        check_id="azure-sql-entra-admin",
+                        title=f"SQL Server '{server.name}' has no Entra ID admin",
+                        description=(
+                            "No Entra ID administrator is configured. Without one, only SQL "
+                            "authentication can manage the server, which means no MFA, no "
+                            "Conditional Access, and credentials cycling outside identity governance."
+                        ),
+                        severity=Severity.MEDIUM,
+                        status=ComplianceStatus.FAIL,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::Sql::Server",
+                        resource_id=server.id or "",
+                        region=server.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        remediation=(
+                            "Set an Entra ID admin (group preferred). Portal: SQL Server > "
+                            "Microsoft Entra ID > Set admin."
+                        ),
+                        soc2_controls=["CC6.1", "CC6.2"],
+                        cis_azure_controls=["4.1.3"],
+                        details={"server": server.name},
+                    )
+                )
+    except Exception:
+        return []
+    return findings
+
+
+def check_sql_min_tls(client: AzureClient, subscription_id: str, region: str) -> list[Finding]:
+    """[CIS 4.1.x] SQL Server minimalTlsVersion should be 1.2 or higher."""
+    findings: list[Finding] = []
+    try:
+        for _sql, server, _rg in _iter_sql_servers(client):
+            min_tls = getattr(server, "minimal_tls_version", None) or "None"
+            ok = min_tls in ("1.2", "1.3")
+            if ok:
+                findings.append(
+                    Finding(
+                        check_id="azure-sql-min-tls",
+                        title=f"SQL Server '{server.name}' enforces TLS {min_tls}",
+                        description=f"minimalTlsVersion = {min_tls}.",
+                        severity=Severity.INFO,
+                        status=ComplianceStatus.PASS,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::Sql::Server",
+                        resource_id=server.id or "",
+                        region=server.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        soc2_controls=["CC6.1", "CC6.7"],
+                        cis_azure_controls=["4.1.7"],
+                        details={"server": server.name, "min_tls": min_tls},
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        check_id="azure-sql-min-tls",
+                        title=f"SQL Server '{server.name}' min TLS = {min_tls}",
+                        description=(
+                            f"minimalTlsVersion = {min_tls}. Allows TLS 1.0/1.1 with known "
+                            "cryptographic weaknesses."
+                        ),
+                        severity=Severity.MEDIUM,
+                        status=ComplianceStatus.FAIL,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::Sql::Server",
+                        resource_id=server.id or "",
+                        region=server.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        remediation=(
+                            "az sql server update -g <rg> -n <server> --minimal-tls-version 1.2"
+                        ),
+                        soc2_controls=["CC6.1", "CC6.7"],
+                        cis_azure_controls=["4.1.7"],
+                        details={"server": server.name, "min_tls": min_tls},
+                    )
+                )
+    except Exception:
+        return []
+    return findings
+
+
+def _iter_keyvaults(client: AzureClient):
+    try:
+        from azure.mgmt.keyvault import KeyVaultManagementClient
+    except ImportError:
+        return
+    kv = client.mgmt_client(KeyVaultManagementClient)
+    for v in kv.vaults.list_by_subscription():
+        yield kv, v
+
+
+def check_keyvault_rbac_mode(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 8.5] Key Vault should use RBAC, not legacy access policies."""
+    findings: list[Finding] = []
+    try:
+        for _kv, vault in _iter_keyvaults(client):
+            props = vault.properties
+            rbac = bool(getattr(props, "enable_rbac_authorization", False))
+            if rbac:
+                findings.append(
+                    Finding(
+                        check_id="azure-keyvault-rbac-mode",
+                        title=f"Key Vault '{vault.name}' uses RBAC",
+                        description="Vault permission model is Azure RBAC.",
+                        severity=Severity.INFO,
+                        status=ComplianceStatus.PASS,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::KeyVault::Vault",
+                        resource_id=vault.id or "",
+                        region=vault.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        soc2_controls=["CC6.1", "CC6.2"],
+                        cis_azure_controls=["8.5"],
+                        details={"vault": vault.name},
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        check_id="azure-keyvault-rbac-mode",
+                        title=f"Key Vault '{vault.name}' uses legacy access policies",
+                        description=(
+                            "Vault uses access policies (vault local model) instead of RBAC. "
+                            "Access policies don't integrate with PIM or Conditional Access "
+                            "and can't be reviewed centrally."
+                        ),
+                        severity=Severity.MEDIUM,
+                        status=ComplianceStatus.FAIL,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::KeyVault::Vault",
+                        resource_id=vault.id or "",
+                        region=vault.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        remediation=(
+                            "Migrate to RBAC: Key Vault > Access configuration > "
+                            "Permission model > Azure role-based access control. Re-grant access "
+                            "via Key Vault Administrator / Secrets User / Crypto User roles."
+                        ),
+                        soc2_controls=["CC6.1", "CC6.2"],
+                        cis_azure_controls=["8.5"],
+                        details={"vault": vault.name},
+                    )
+                )
+    except Exception:
+        return []
+    return findings
+
+
+def check_keyvault_public_access(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 8.7] Key Vault publicNetworkAccess should be Disabled with private endpoint."""
+    findings: list[Finding] = []
+    try:
+        for _kv, vault in _iter_keyvaults(client):
+            props = vault.properties
+            pna = getattr(props, "public_network_access", "") or "Enabled"
+            net_acls = getattr(props, "network_acls", None)
+            default_action = getattr(net_acls, "default_action", "Allow") if net_acls else "Allow"
+            if str(pna).lower() == "disabled" or str(default_action).lower() == "deny":
+                findings.append(
+                    Finding(
+                        check_id="azure-keyvault-public-access",
+                        title=f"Key Vault '{vault.name}' restricts public network access",
+                        description=f"publicNetworkAccess={pna}, defaultAction={default_action}",
+                        severity=Severity.INFO,
+                        status=ComplianceStatus.PASS,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::KeyVault::Vault",
+                        resource_id=vault.id or "",
+                        region=vault.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        soc2_controls=["CC6.6", "CC6.7"],
+                        cis_azure_controls=["8.6", "8.7"],
+                        mcsb_controls=["NS-2"],
+                        details={"vault": vault.name, "pna": pna, "default_action": default_action},
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        check_id="azure-keyvault-public-access",
+                        title=f"Key Vault '{vault.name}' is reachable from the public internet",
+                        description=(
+                            f"publicNetworkAccess={pna}, network defaultAction={default_action}. "
+                            "Anyone with the right Entra ID identity can attempt key/secret access "
+                            "from anywhere on the internet. Combined with a stolen token or "
+                            "managed identity hijack, this is a direct path to secrets."
+                        ),
+                        severity=Severity.HIGH,
+                        status=ComplianceStatus.FAIL,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::KeyVault::Vault",
+                        resource_id=vault.id or "",
+                        region=vault.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        remediation=(
+                            "Set publicNetworkAccess = Disabled and create a Private Endpoint. "
+                            "Alternatively set networkAcls.defaultAction = Deny and allow only "
+                            "specific VNets/IPs."
+                        ),
+                        soc2_controls=["CC6.6", "CC6.7"],
+                        cis_azure_controls=["8.6", "8.7"],
+                        mcsb_controls=["NS-2"],
+                        details={"vault": vault.name, "pna": pna, "default_action": default_action},
+                    )
+                )
+    except Exception:
+        return []
+    return findings
+
+
+def check_keyvault_key_expiry(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 8.3, 8.4] Every key and secret in Key Vault should have an expiration date."""
+    findings: list[Finding] = []
+    try:
+        from azure.keyvault.keys import KeyClient
+        from azure.keyvault.secrets import SecretClient
+    except ImportError:
+        return []
+
+    try:
+        for _kv, vault in _iter_keyvaults(client):
+            vault_uri = (
+                getattr(vault.properties, "vault_uri", None)
+                or f"https://{vault.name}.vault.azure.net"
+            )
+            keys_no_exp: list[str] = []
+            secrets_no_exp: list[str] = []
+            try:
+                key_client = KeyClient(vault_uri=vault_uri, credential=client.credential)
+                for k in key_client.list_properties_of_keys():
+                    if k.expires_on is None:
+                        keys_no_exp.append(k.name or "")
+            except Exception:
+                pass
+            try:
+                sec_client = SecretClient(vault_uri=vault_uri, credential=client.credential)
+                for s in sec_client.list_properties_of_secrets():
+                    if s.expires_on is None:
+                        secrets_no_exp.append(s.name or "")
+            except Exception:
+                pass
+
+            total_missing = len(keys_no_exp) + len(secrets_no_exp)
+            if total_missing == 0:
+                findings.append(
+                    Finding(
+                        check_id="azure-keyvault-key-expiry",
+                        title=f"Key Vault '{vault.name}' — all keys/secrets have expiry",
+                        description="Every key and secret has an expiration date set.",
+                        severity=Severity.INFO,
+                        status=ComplianceStatus.PASS,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::KeyVault::Vault",
+                        resource_id=vault.id or "",
+                        region=vault.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        soc2_controls=["CC6.7"],
+                        cis_azure_controls=["8.3", "8.4"],
+                        details={"vault": vault.name},
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        check_id="azure-keyvault-key-expiry",
+                        title=f"Key Vault '{vault.name}' — {total_missing} key(s)/secret(s) lack expiry",
+                        description=(
+                            f"{len(keys_no_exp)} key(s) and {len(secrets_no_exp)} secret(s) have "
+                            "no expiration date. Without expiry, stale credentials accumulate "
+                            "indefinitely and rotation cannot be enforced via policy."
+                        ),
+                        severity=Severity.MEDIUM,
+                        status=ComplianceStatus.FAIL,
+                        domain=CheckDomain.ENCRYPTION,
+                        resource_type="Azure::KeyVault::Vault",
+                        resource_id=vault.id or "",
+                        region=vault.location or region,
+                        account_id=subscription_id,
+                        cloud_provider=CloudProvider.AZURE,
+                        remediation=(
+                            "Set expiration on every key/secret. Use rotation policies on keys "
+                            "(properties > rotation policy) and update consuming apps to fetch by "
+                            "version-less URI."
+                        ),
+                        soc2_controls=["CC6.7"],
+                        cis_azure_controls=["8.3", "8.4"],
+                        details={
+                            "vault": vault.name,
+                            "keys_without_expiry": keys_no_exp[:20],
+                            "secrets_without_expiry": secrets_no_exp[:20],
+                        },
+                    )
+                )
+    except Exception:
+        return []
     return findings

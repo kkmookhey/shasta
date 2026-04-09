@@ -41,6 +41,9 @@ OVERPRIVILEGED_RBAC_ROLES = {
 
 INACTIVE_DAYS_THRESHOLD = 90
 
+# Microsoft Azure Management cloud app ID — covers Portal, ARM, CLI, PowerShell, REST APIs.
+AZURE_MGMT_APP_ID = "797f4846-ba00-4fd7-ba43-dac1f8f63013"
+
 
 def run_all_azure_iam_checks(client: AzureClient) -> list[Finding]:
     """Run all Azure identity and access compliance checks."""
@@ -49,13 +52,56 @@ def run_all_azure_iam_checks(client: AzureClient) -> list[Finding]:
     region = client.account_info.region if client.account_info else "unknown"
 
     findings.extend(check_conditional_access_mfa(client, sub_id, region))
+    findings.extend(check_legacy_auth_blocked(client, sub_id, region))
+    findings.extend(check_mfa_for_azure_management(client, sub_id, region))
     findings.extend(check_privileged_roles(client, sub_id, region))
+    findings.extend(check_pim_eligibility(client, sub_id, region))
     findings.extend(check_rbac_least_privilege(client, sub_id, region))
+    findings.extend(check_custom_role_wildcards(client, sub_id, region))
+    findings.extend(check_classic_administrators(client, sub_id, region))
+    findings.extend(check_guest_invitation_restrictions(client, sub_id, region))
     findings.extend(check_inactive_users(client, sub_id, region))
     findings.extend(check_guest_access(client, sub_id, region))
     findings.extend(check_service_principal_hygiene(client, sub_id, region))
 
     return findings
+
+
+def _ca_policies(client: AzureClient) -> list:
+    """Fetch all Conditional Access policies, returning [] on permission errors."""
+    try:
+        graph = client.graph_client()
+        return list(client.graph_call(graph.identity.conditional_access.policies.get()).value or [])
+    except Exception:
+        return []
+
+
+def _no_permission_finding(
+    check_id: str,
+    title: str,
+    description: str,
+    subscription_id: str,
+    region: str,
+    resource_type: str,
+    resource_id: str,
+    soc2: list[str],
+    cis: list[str] | None = None,
+) -> Finding:
+    return Finding(
+        check_id=check_id,
+        title=title,
+        description=description,
+        severity=Severity.MEDIUM,
+        status=ComplianceStatus.NOT_ASSESSED,
+        domain=CheckDomain.IAM,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        region=region,
+        account_id=subscription_id,
+        cloud_provider=CloudProvider.AZURE,
+        soc2_controls=soc2,
+        cis_azure_controls=cis or [],
+    )
 
 
 def check_conditional_access_mfa(
@@ -643,3 +689,570 @@ def check_service_principal_hygiene(
             raise
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS Azure v3.0 Identity checks (Stage 1 additions)
+# ---------------------------------------------------------------------------
+
+
+def check_legacy_auth_blocked(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 1.1.x] Check that a Conditional Access policy blocks legacy authentication.
+
+    Legacy auth (Exchange ActiveSync, IMAP, POP, SMTP, Other Clients) bypasses
+    MFA and is the #1 password-spray attack vector. Best practice is a CA
+    policy targeting clientAppTypes = ['exchangeActiveSync','other'] with
+    grant control = block.
+    """
+    policies = _ca_policies(client)
+    if not policies:
+        return [
+            _no_permission_finding(
+                "azure-legacy-auth-blocked",
+                "Cannot check legacy authentication block (Conditional Access unavailable)",
+                "Could not enumerate Conditional Access policies. Requires Policy.Read.All on Graph and Entra ID P1+.",
+                subscription_id,
+                region,
+                "Azure::EntraID::ConditionalAccessPolicy",
+                f"/tenants/{subscription_id}/conditionalAccess",
+                ["CC6.1"],
+                ["1.1.1"],
+            )
+        ]
+
+    blocking_policies: list[str] = []
+    for p in policies:
+        if getattr(p, "state", None) != "enabled":
+            continue
+        cond = getattr(p, "conditions", None)
+        client_apps = getattr(cond, "client_app_types", None) if cond else None
+        if not client_apps:
+            continue
+        normalized = {str(a).lower() for a in client_apps}
+        # Targets legacy clients (anything other than 'browser'/'mobileAppsAndDesktopClients')
+        if normalized & {"exchangeactivesync", "other", "exchangeActiveSync".lower()}:
+            grant = getattr(p, "grant_controls", None)
+            built_in = [c.lower() for c in (getattr(grant, "built_in_controls", None) or [])]
+            if "block" in built_in:
+                blocking_policies.append(p.display_name or "unnamed")
+
+    if blocking_policies:
+        return [
+            Finding(
+                check_id="azure-legacy-auth-blocked",
+                title="Legacy authentication is blocked by Conditional Access",
+                description=(
+                    f"{len(blocking_policies)} CA policy(ies) block legacy authentication: "
+                    f"{', '.join(blocking_policies)}. This stops password-spray attacks against "
+                    "Exchange ActiveSync, IMAP, POP, and SMTP."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="Azure::EntraID::ConditionalAccessPolicy",
+                resource_id=f"/tenants/{subscription_id}/conditionalAccess/legacyAuth",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1"],
+                cis_azure_controls=["1.1.1"],
+                mcsb_controls=["IM-6"],
+                details={"policies": blocking_policies},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-legacy-auth-blocked",
+            title="Legacy authentication is NOT blocked",
+            description=(
+                "No enabled Conditional Access policy blocks legacy authentication clients. "
+                "Legacy protocols (ActiveSync, IMAP, POP, SMTP) bypass MFA and account for the "
+                "vast majority of credential-based attacks against Entra ID."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="Azure::EntraID::ConditionalAccessPolicy",
+            resource_id=f"/tenants/{subscription_id}/conditionalAccess/legacyAuth",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Create a CA policy: Users=All, Cloud apps=All, Conditions > Client apps > "
+                "select Exchange ActiveSync clients + Other clients, Grant > Block access. "
+                "Test in report-only mode first."
+            ),
+            soc2_controls=["CC6.1"],
+            cis_azure_controls=["1.1.1"],
+            mcsb_controls=["IM-6"],
+            details={"total_policies": len(policies)},
+        )
+    ]
+
+
+def check_mfa_for_azure_management(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 1.1.4] Check that a CA policy enforces MFA for the Microsoft Azure Management cloud app.
+
+    The Azure Management app ID is 797f4846-ba00-4fd7-ba43-dac1f8f63013 and
+    covers Azure Portal, ARM, CLI, PowerShell, REST APIs.
+    """
+    policies = _ca_policies(client)
+    if not policies:
+        return [
+            _no_permission_finding(
+                "azure-mfa-azure-management",
+                "Cannot check MFA-for-Azure-Management policy",
+                "Could not enumerate Conditional Access policies. Requires Policy.Read.All.",
+                subscription_id,
+                region,
+                "Azure::EntraID::ConditionalAccessPolicy",
+                f"/tenants/{subscription_id}/conditionalAccess",
+                ["CC6.1"],
+                ["1.1.4"],
+            )
+        ]
+
+    matched: list[str] = []
+    for p in policies:
+        if getattr(p, "state", None) != "enabled":
+            continue
+        cond = getattr(p, "conditions", None)
+        apps = getattr(cond, "applications", None) if cond else None
+        include_apps = getattr(apps, "include_applications", None) if apps else None
+        if not include_apps:
+            continue
+        if AZURE_MGMT_APP_ID not in include_apps and "All" not in include_apps:
+            continue
+        grant = getattr(p, "grant_controls", None)
+        built_in = [c.lower() for c in (getattr(grant, "built_in_controls", None) or [])]
+        if "mfa" in built_in:
+            matched.append(p.display_name or "unnamed")
+
+    if matched:
+        return [
+            Finding(
+                check_id="azure-mfa-azure-management",
+                title="MFA enforced for Azure Management",
+                description=(
+                    f"{len(matched)} CA policy(ies) enforce MFA on the Microsoft Azure Management "
+                    f"cloud app: {', '.join(matched)}."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="Azure::EntraID::ConditionalAccessPolicy",
+                resource_id=f"/tenants/{subscription_id}/conditionalAccess/azureMgmt",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1"],
+                cis_azure_controls=["1.1.4"],
+                mcsb_controls=["IM-6"],
+                details={"policies": matched},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-mfa-azure-management",
+            title="MFA is NOT enforced for Azure Management",
+            description=(
+                "No enabled Conditional Access policy targets the Microsoft Azure Management cloud "
+                "app (Azure Portal, ARM, CLI, PowerShell) with MFA. A leaked admin password gives "
+                "direct subscription access without a second factor."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="Azure::EntraID::ConditionalAccessPolicy",
+            resource_id=f"/tenants/{subscription_id}/conditionalAccess/azureMgmt",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Create a CA policy: Users=All (exclude break-glass), Cloud apps=Microsoft Azure "
+                "Management, Grant=Require MFA. Verify break-glass exclusions before enforcing."
+            ),
+            soc2_controls=["CC6.1"],
+            cis_azure_controls=["1.1.4"],
+            mcsb_controls=["IM-6"],
+        )
+    ]
+
+
+def check_pim_eligibility(client: AzureClient, subscription_id: str, region: str) -> list[Finding]:
+    """[CIS 1.23] Check that privileged directory roles use PIM eligibility, not permanent assignments.
+
+    Privileged Identity Management (PIM) lets admins activate roles JIT with
+    MFA and approval rather than holding the role permanently.
+    """
+    try:
+        graph = client.graph_client()
+        # active assignments
+        active = list(
+            client.graph_call(
+                graph.role_management.directory.role_assignment_schedule_instances.get()
+            ).value
+            or []
+        )
+        # eligible (PIM) assignments
+        eligible = list(
+            client.graph_call(
+                graph.role_management.directory.role_eligibility_schedule_instances.get()
+            ).value
+            or []
+        )
+        role_defs = list(
+            client.graph_call(graph.role_management.directory.role_definitions.get()).value or []
+        )
+    except Exception:
+        return [
+            _no_permission_finding(
+                "azure-pim-eligibility",
+                "Cannot check PIM eligibility (insufficient permissions or no Entra ID P2)",
+                "PIM checks require RoleManagement.Read.Directory and Entra ID P2 license.",
+                subscription_id,
+                region,
+                "Azure::EntraID::PIM",
+                f"/tenants/{subscription_id}/pim",
+                ["CC6.1", "CC6.2"],
+                ["1.23"],
+            )
+        ]
+
+    role_map = {rd.id: rd.display_name for rd in role_defs}
+    permanent_privileged: dict[str, int] = {}
+    for a in active:
+        role_name = role_map.get(getattr(a, "role_definition_id", None), "Unknown")
+        if role_name not in PRIVILEGED_ROLES:
+            continue
+        # Permanent assignments have no end date
+        end_date = getattr(getattr(a, "end_date_time", None), "isoformat", lambda: None)()
+        if end_date is None:
+            permanent_privileged[role_name] = permanent_privileged.get(role_name, 0) + 1
+
+    eligible_count = sum(
+        1
+        for e in eligible
+        if role_map.get(getattr(e, "role_definition_id", None), "") in PRIVILEGED_ROLES
+    )
+
+    if not permanent_privileged:
+        return [
+            Finding(
+                check_id="azure-pim-eligibility",
+                title="Privileged roles use PIM eligibility (no permanent assignments)",
+                description=(
+                    f"All privileged role assignments are time-bound or PIM-eligible "
+                    f"({eligible_count} eligible). No permanent privileged assignments found."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="Azure::EntraID::PIM",
+                resource_id=f"/tenants/{subscription_id}/pim",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1", "CC6.2"],
+                cis_azure_controls=["1.23"],
+                mcsb_controls=["PA-2"],
+                details={"eligible_assignments": eligible_count},
+            )
+        ]
+
+    total_perm = sum(permanent_privileged.values())
+    return [
+        Finding(
+            check_id="azure-pim-eligibility",
+            title=f"{total_perm} permanent privileged role assignment(s) found",
+            description=(
+                f"Privileged roles with permanent (non-PIM) assignments: "
+                f"{', '.join(f'{r}={c}' for r, c in permanent_privileged.items())}. "
+                "Permanent privileged access violates least-privilege; eligible PIM assignments "
+                "force JIT activation with MFA and audit trail."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="Azure::EntraID::PIM",
+            resource_id=f"/tenants/{subscription_id}/pim",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Convert permanent privileged role assignments to PIM eligible. "
+                "Entra ID > Privileged Identity Management > Azure AD roles > Roles > "
+                "select role > Add assignments > Eligible. Configure activation max 8h, "
+                "require MFA, require justification."
+            ),
+            soc2_controls=["CC6.1", "CC6.2"],
+            cis_azure_controls=["1.23"],
+            mcsb_controls=["PA-2"],
+            details={
+                "permanent_by_role": permanent_privileged,
+                "eligible_assignments": eligible_count,
+            },
+        )
+    ]
+
+
+def check_classic_administrators(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 1.22] Check for legacy Service Administrator / Co-Administrator role assignments.
+
+    Classic admins predate RBAC and grant full subscription access without
+    audit granularity. They should be removed entirely.
+    """
+    try:
+        from azure.mgmt.authorization import AuthorizationManagementClient
+
+        auth = client.mgmt_client(AuthorizationManagementClient)
+        classic = list(auth.classic_administrators.list())
+    except Exception as e:
+        if "Authorization" in str(e) or "Forbidden" in str(e):
+            return [
+                _no_permission_finding(
+                    "azure-classic-admins",
+                    "Cannot check classic administrators (insufficient permissions)",
+                    "Requires Microsoft.Authorization/classicAdministrators/read.",
+                    subscription_id,
+                    region,
+                    "Azure::Authorization::ClassicAdmin",
+                    f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/classicAdministrators",
+                    ["CC6.1", "CC6.2"],
+                    ["1.22"],
+                )
+            ]
+        return []
+
+    if not classic:
+        return [
+            Finding(
+                check_id="azure-classic-admins",
+                title="No classic administrators present",
+                description="The subscription has no Service Administrator or Co-Administrator legacy role assignments.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="Azure::Authorization::ClassicAdmin",
+                resource_id=f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/classicAdministrators",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1", "CC6.2"],
+                cis_azure_controls=["1.22"],
+            )
+        ]
+
+    admins = [
+        {
+            "email": getattr(c, "email_address", ""),
+            "role": getattr(c, "role", ""),
+        }
+        for c in classic
+    ]
+    return [
+        Finding(
+            check_id="azure-classic-admins",
+            title=f"{len(classic)} classic administrator(s) still assigned",
+            description=(
+                f"{len(classic)} legacy classic admin assignment(s) detected: "
+                f"{', '.join(a['email'] for a in admins[:5])}. "
+                "Classic admins predate RBAC, grant full subscription control, and have no "
+                "fine-grained audit. Migrate to Owner/Contributor RBAC and remove."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="Azure::Authorization::ClassicAdmin",
+            resource_id=f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/classicAdministrators",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Re-create equivalent access using RBAC role assignments (Owner/Contributor at "
+                "the smallest necessary scope). Then remove classic assignments via "
+                "Subscription > Access control (IAM) > Classic administrators."
+            ),
+            soc2_controls=["CC6.1", "CC6.2"],
+            cis_azure_controls=["1.22"],
+            details={"admins": admins[:20]},
+        )
+    ]
+
+
+def check_custom_role_wildcards(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 1.21] Check for custom RBAC roles with wildcard Actions at subscription scope.
+
+    Custom roles with Actions: ["*"] are equivalent to Owner but easier to
+    miss in access reviews. The CIS benchmark explicitly forbids them.
+    """
+    try:
+        from azure.mgmt.authorization import AuthorizationManagementClient
+
+        auth = client.mgmt_client(AuthorizationManagementClient)
+        scope = f"/subscriptions/{subscription_id}"
+        defs = list(auth.role_definitions.list(scope))
+    except Exception:
+        return [
+            _no_permission_finding(
+                "azure-custom-role-wildcards",
+                "Cannot enumerate custom RBAC roles",
+                "Requires Microsoft.Authorization/roleDefinitions/read.",
+                subscription_id,
+                region,
+                "Azure::Authorization::RoleDefinition",
+                f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/roleDefinitions",
+                ["CC6.1", "CC6.2"],
+                ["1.21"],
+            )
+        ]
+
+    offenders: list[dict] = []
+    for d in defs:
+        if getattr(d, "role_type", "") != "CustomRole":
+            continue
+        for perm in getattr(d, "permissions", []) or []:
+            actions = list(getattr(perm, "actions", []) or [])
+            data_actions = list(getattr(perm, "data_actions", []) or [])
+            if "*" in actions or "*" in data_actions:
+                offenders.append(
+                    {
+                        "name": getattr(d, "role_name", "unknown"),
+                        "id": getattr(d, "id", ""),
+                        "actions": actions,
+                        "data_actions": data_actions,
+                    }
+                )
+                break
+
+    if not offenders:
+        return [
+            Finding(
+                check_id="azure-custom-role-wildcards",
+                title="No custom RBAC roles with wildcard Actions",
+                description=f"Reviewed {len(defs)} role definitions; no custom role grants Actions=['*'].",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="Azure::Authorization::RoleDefinition",
+                resource_id=f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/roleDefinitions",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1", "CC6.2"],
+                cis_azure_controls=["1.21"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-custom-role-wildcards",
+            title=f"{len(offenders)} custom RBAC role(s) grant wildcard Actions",
+            description=(
+                f"Custom roles with Actions=['*'] effectively grant Owner without the Owner "
+                f"role name: {', '.join(o['name'] for o in offenders)}. These bypass "
+                "least-privilege reviews."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="Azure::Authorization::RoleDefinition",
+            resource_id=f"/subscriptions/{subscription_id}/providers/Microsoft.Authorization/roleDefinitions",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Review each custom role and replace wildcard Actions with the specific "
+                "operations needed. If the role truly needs full control, use the built-in "
+                "Owner role instead so it's caught by access reviews."
+            ),
+            soc2_controls=["CC6.1", "CC6.2"],
+            cis_azure_controls=["1.21"],
+            details={"offending_roles": offenders[:10]},
+        )
+    ]
+
+
+def check_guest_invitation_restrictions(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 1.3] Check that guest invitations are restricted to admins / specific roles.
+
+    Reads the authorizationPolicy for allowInvitesFrom. Allowed values:
+    none / adminsAndGuestInviters / adminsGuestInvitersAndAllMembers / everyone.
+    Anything but the first two is a finding.
+    """
+    try:
+        graph = client.graph_client()
+        policy = client.graph_call(graph.policies.authorization_policy.get())
+    except Exception:
+        return [
+            _no_permission_finding(
+                "azure-guest-invitations",
+                "Cannot read authorization policy",
+                "Requires Policy.Read.All on Microsoft Graph.",
+                subscription_id,
+                region,
+                "Azure::EntraID::AuthorizationPolicy",
+                f"/tenants/{subscription_id}/policies/authorizationPolicy",
+                ["CC6.1", "CC6.3"],
+                ["1.3"],
+            )
+        ]
+
+    allow_invites = getattr(policy, "allow_invites_from", None) or "unknown"
+    restricted_values = {"none", "adminsAndGuestInviters"}
+
+    if allow_invites in restricted_values:
+        return [
+            Finding(
+                check_id="azure-guest-invitations",
+                title=f"Guest invitations restricted (allowInvitesFrom={allow_invites})",
+                description="Guest invitations are limited to admins and designated guest inviters only.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="Azure::EntraID::AuthorizationPolicy",
+                resource_id=f"/tenants/{subscription_id}/policies/authorizationPolicy",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1", "CC6.3"],
+                cis_azure_controls=["1.3"],
+                details={"allow_invites_from": allow_invites},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-guest-invitations",
+            title=f"Guest invitations are too permissive (allowInvitesFrom={allow_invites})",
+            description=(
+                f"The authorization policy allows '{allow_invites}' to invite guest users. "
+                "Any internal user (or worse, any guest) can invite arbitrary external accounts "
+                "into the tenant, which then receive the default user role."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="Azure::EntraID::AuthorizationPolicy",
+            resource_id=f"/tenants/{subscription_id}/policies/authorizationPolicy",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Restrict guest invitations to admins. Entra ID > External Identities > "
+                "External collaboration settings > Guest invite settings > 'Only users assigned "
+                "to specific admin roles can invite guest users'."
+            ),
+            soc2_controls=["CC6.1", "CC6.3"],
+            cis_azure_controls=["1.3"],
+            details={"allow_invites_from": allow_invites},
+        )
+    ]

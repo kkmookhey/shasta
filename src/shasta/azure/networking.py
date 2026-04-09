@@ -41,9 +41,216 @@ def run_all_azure_networking_checks(client: AzureClient) -> list[Finding]:
     findings.extend(check_nsg_unrestricted_ingress(client, sub_id, region))
     findings.extend(check_nsg_default_restricted(client, sub_id, region))
     findings.extend(check_vnet_flow_logs(client, sub_id, region))
+    findings.extend(check_vnet_flow_logs_modern(client, sub_id, region))
+    findings.extend(check_network_watcher_per_region(client, sub_id, region))
     findings.extend(check_public_ip_exposure(client, sub_id, region))
 
     return findings
+
+
+def check_vnet_flow_logs_modern(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 6.4 / 6.5] Check for VNet flow logs (the post-2025 successor to NSG flow logs).
+
+    NSG flow logs are deprecated:
+    - After 2025-06-30, no new NSG flow logs can be created.
+    - On 2027-09-30, all existing NSG flow logs are retired.
+    Customers should migrate to VNet flow logs (Microsoft.Network/networkWatchers/flowLogs
+    targeted at virtualNetworks).
+    """
+    try:
+        from azure.mgmt.network import NetworkManagementClient
+
+        network = client.mgmt_client(NetworkManagementClient)
+        vnets = list(network.virtual_networks.list_all())
+        watchers = list(network.network_watchers.list_all())
+    except Exception as e:
+        return [
+            Finding(
+                check_id="azure-vnet-flow-logs-modern",
+                title="VNet flow logs check failed",
+                description=f"Could not enumerate VNets or Network Watchers: {e}",
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.NETWORKING,
+                resource_type="Azure::Network::FlowLog",
+                resource_id=f"/subscriptions/{subscription_id}/flowLogs",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["6.4"],
+            )
+        ]
+
+    if not vnets:
+        return [
+            Finding(
+                check_id="azure-vnet-flow-logs-modern",
+                title="No VNets present in subscription",
+                description="No virtual networks found, so VNet flow logs check is not applicable.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.NOT_APPLICABLE,
+                domain=CheckDomain.NETWORKING,
+                resource_type="Azure::Network::VirtualNetwork",
+                resource_id=f"/subscriptions/{subscription_id}/virtualNetworks",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["6.4"],
+            )
+        ]
+
+    # Aggregate flow logs across all watchers
+    vnet_targets: dict[str, dict] = {}
+    for w in watchers:
+        try:
+            wrg = (w.id or "").split("/resourceGroups/")[1].split("/")[0]
+            flow_logs = list(network.flow_logs.list(wrg, w.name))
+        except Exception:
+            continue
+        for fl in flow_logs:
+            target = (getattr(fl, "target_resource_id", "") or "").lower()
+            if "/virtualnetworks/" in target:
+                vnet_targets[target] = {
+                    "name": fl.name,
+                    "retention": getattr(getattr(fl, "retention_policy", None), "days", 0),
+                    "enabled": getattr(fl, "enabled", False),
+                }
+
+    covered = []
+    uncovered = []
+    for v in vnets:
+        vid = (v.id or "").lower()
+        if vid in vnet_targets and vnet_targets[vid]["enabled"]:
+            covered.append({"vnet": v.name, **vnet_targets[vid]})
+        else:
+            uncovered.append({"vnet": v.name, "id": v.id})
+
+    if not uncovered:
+        retention_ok = all(c["retention"] == 0 or c["retention"] >= 90 for c in covered)
+        return [
+            Finding(
+                check_id="azure-vnet-flow-logs-modern",
+                title=f"All {len(vnets)} VNet(s) have VNet flow logs enabled",
+                description=(
+                    f"VNet flow logs are enabled on every VNet in the subscription. "
+                    f"Retention ≥ 90 days: {retention_ok}."
+                ),
+                severity=Severity.INFO if retention_ok else Severity.LOW,
+                status=ComplianceStatus.PASS if retention_ok else ComplianceStatus.PARTIAL,
+                domain=CheckDomain.NETWORKING,
+                resource_type="Azure::Network::FlowLog",
+                resource_id=f"/subscriptions/{subscription_id}/flowLogs",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["6.4"],
+                mcsb_controls=["LT-4"],
+                details={"covered": covered},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-vnet-flow-logs-modern",
+            title=f"{len(uncovered)}/{len(vnets)} VNet(s) lack VNet flow logs",
+            description=(
+                f"{len(uncovered)} VNet(s) do not have a VNet-targeted flow log. "
+                "NSG flow logs are deprecated (no new ones after 2025-06-30, full retirement "
+                "2027-09-30) — migrate to VNet flow logs targeted at "
+                "Microsoft.Network/virtualNetworks resources."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.NETWORKING,
+            resource_type="Azure::Network::FlowLog",
+            resource_id=f"/subscriptions/{subscription_id}/flowLogs",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Enable VNet flow logs in Network Watcher for each VNet, with a Storage account "
+                "destination, retention ≥ 90 days, and Traffic Analytics → Log Analytics."
+            ),
+            soc2_controls=["CC7.1"],
+            cis_azure_controls=["6.4"],
+            mcsb_controls=["LT-4"],
+            details={
+                "uncovered_vnets": [u["vnet"] for u in uncovered][:20],
+                "covered": covered,
+            },
+        )
+    ]
+
+
+def check_network_watcher_per_region(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 6.5] Network Watcher should exist in every region that hosts a VNet."""
+    try:
+        from azure.mgmt.network import NetworkManagementClient
+
+        network = client.mgmt_client(NetworkManagementClient)
+        vnets = list(network.virtual_networks.list_all())
+        watchers = list(network.network_watchers.list_all())
+    except Exception:
+        return []
+
+    vnet_regions = {(v.location or "").lower() for v in vnets if v.location}
+    watcher_regions = {(w.location or "").lower() for w in watchers if w.location}
+
+    missing = sorted(vnet_regions - watcher_regions)
+    if not vnet_regions:
+        return []
+    if not missing:
+        return [
+            Finding(
+                check_id="azure-network-watcher-coverage",
+                title=f"Network Watcher present in all {len(vnet_regions)} VNet region(s)",
+                description="Every region hosting a VNet has a Network Watcher provisioned.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.NETWORKING,
+                resource_type="Azure::Network::NetworkWatcher",
+                resource_id=f"/subscriptions/{subscription_id}/networkWatchers",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["6.5"],
+                details={"vnet_regions": sorted(vnet_regions)},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-network-watcher-coverage",
+            title=f"Network Watcher missing in {len(missing)} region(s)",
+            description=(
+                f"Regions without Network Watcher: {', '.join(missing)}. Without Network Watcher, "
+                "you cannot capture VNet flow logs, run connection troubleshooter, or use "
+                "Traffic Analytics in those regions."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.NETWORKING,
+            resource_type="Azure::Network::NetworkWatcher",
+            resource_id=f"/subscriptions/{subscription_id}/networkWatchers",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Network Watcher is auto-created for new regions, but if it was deleted or the "
+                "subscription is older, create one per region. Portal: Network Watcher > "
+                "Overview > + Add."
+            ),
+            soc2_controls=["CC7.1"],
+            cis_azure_controls=["6.5"],
+            details={"missing_regions": missing, "vnet_regions": sorted(vnet_regions)},
+        )
+    ]
 
 
 def _is_unrestricted_source(source_prefix: str) -> bool:

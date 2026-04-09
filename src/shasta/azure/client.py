@@ -136,6 +136,54 @@ class AzureClient:
         except Exception:
             return "unknown"
 
+    def list_subscriptions(self) -> list[dict[str, str]]:
+        """List every subscription this credential can access.
+
+        Returns a list of {subscription_id, display_name, tenant_id, state} dicts.
+        Best-effort; returns the current single subscription on failure.
+        """
+        try:
+            from azure.mgmt.subscription import SubscriptionClient
+
+            sub_client = SubscriptionClient(self.credential)
+            out: list[dict[str, str]] = []
+            for sub in sub_client.subscriptions.list():
+                out.append(
+                    {
+                        "subscription_id": sub.subscription_id or "",
+                        "display_name": sub.display_name or "",
+                        "tenant_id": getattr(sub, "tenant_id", "") or self._tenant_id or "",
+                        "state": getattr(sub, "state", "") or "",
+                    }
+                )
+            return out
+        except Exception:
+            sid = self._subscription_id or "unknown"
+            return [
+                {
+                    "subscription_id": sid,
+                    "display_name": "",
+                    "tenant_id": self._tenant_id or "",
+                    "state": "Unknown",
+                }
+            ]
+
+    def for_subscription(self, subscription_id: str) -> AzureClient:
+        """Return a sibling AzureClient bound to a different subscription.
+
+        Reuses the same credential but rebuilds the management-client cache so
+        each subscription gets fresh service clients. The new client is
+        unvalidated until ``validate_credentials`` is called.
+        """
+        sibling = AzureClient(
+            subscription_id=subscription_id,
+            tenant_id=self._tenant_id,
+            region=self._region,
+        )
+        # Share the credential to avoid re-authenticating per subscription
+        sibling._credential = self._credential
+        return sibling
+
     def discover_services(self) -> list[str]:
         """Discover which Azure services are in use in the subscription.
 

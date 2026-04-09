@@ -23,10 +23,365 @@ def run_all_azure_monitoring_checks(client: AzureClient) -> list[Finding]:
     region = client.account_info.region if client.account_info else "unknown"
 
     findings.extend(check_activity_log(client, sub_id, region))
+    findings.extend(check_activity_log_retention(client, sub_id, region))
+    findings.extend(check_activity_log_alerts(client, sub_id, region))
     findings.extend(check_defender_enabled(client, sub_id, region))
+    findings.extend(check_defender_per_plan(client, sub_id, region))
     findings.extend(check_policy_compliance(client, sub_id, region))
     findings.extend(check_monitor_alerts(client, sub_id, region))
 
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS Azure v3.0 monitoring checks (Stage 1 additions)
+# ---------------------------------------------------------------------------
+
+# Critical Defender for Cloud plans (CIS 2.1.x). Each is checked individually.
+DEFENDER_REQUIRED_PLANS = [
+    "VirtualMachines",
+    "AppServices",
+    "SqlServers",
+    "SqlServerVirtualMachines",
+    "OpenSourceRelationalDatabases",
+    "CosmosDbs",
+    "StorageAccounts",
+    "KeyVaults",
+    "Containers",
+    "Arm",
+    "Dns",
+    "Api",
+    "AiServices",
+    "CloudPosture",
+]
+
+# Activity Log alerts CIS expects (CIS 5.2.1 - 5.2.9)
+ACTIVITY_LOG_ALERT_OPERATIONS = [
+    ("Microsoft.Network/networkSecurityGroups/write", "5.2.1", "Create/Update NSG"),
+    ("Microsoft.Network/networkSecurityGroups/delete", "5.2.1", "Delete NSG"),
+    (
+        "Microsoft.Network/networkSecurityGroups/securityRules/write",
+        "5.2.2",
+        "Create/Update NSG Rule",
+    ),
+    (
+        "Microsoft.Network/networkSecurityGroups/securityRules/delete",
+        "5.2.2",
+        "Delete NSG Rule",
+    ),
+    ("Microsoft.Sql/servers/firewallRules/write", "5.2.4", "Create/Update SQL Firewall Rule"),
+    ("Microsoft.Authorization/policyAssignments/write", "5.2.5", "Create Policy Assignment"),
+    ("Microsoft.Authorization/policyAssignments/delete", "5.2.6", "Delete Policy Assignment"),
+    ("Microsoft.KeyVault/vaults/write", "5.2.7", "Create/Update Key Vault"),
+    ("Microsoft.KeyVault/vaults/delete", "5.2.8", "Delete Key Vault"),
+]
+
+
+def check_activity_log_retention(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 5.1.2] Activity Log archive Storage account must retain ≥ 365 days."""
+    try:
+        from azure.mgmt.monitor import MonitorManagementClient
+
+        monitor = client.mgmt_client(MonitorManagementClient)
+        settings = list(monitor.diagnostic_settings.list(f"/subscriptions/{subscription_id}"))
+    except Exception as e:
+        return [
+            Finding(
+                check_id="azure-activity-log-retention",
+                title="Activity Log retention check failed",
+                description=f"Could not enumerate diagnostic settings: {e}",
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.MONITORING,
+                resource_type="Azure::Monitor::DiagnosticSetting",
+                resource_id=f"/subscriptions/{subscription_id}",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["5.1.2"],
+            )
+        ]
+
+    storage_settings: list[dict] = []
+    long_retention: list[dict] = []
+
+    for s in settings:
+        if not getattr(s, "storage_account_id", None):
+            continue
+        # Find the longest retention across log categories
+        max_retention = 0
+        for log in getattr(s, "logs", None) or []:
+            policy = getattr(log, "retention_policy", None)
+            if policy and getattr(policy, "enabled", False):
+                max_retention = max(max_retention, int(getattr(policy, "days", 0) or 0))
+        entry = {
+            "name": s.name,
+            "storage_account": s.storage_account_id,
+            "retention_days": max_retention,
+        }
+        storage_settings.append(entry)
+        # 0 = "forever" in legacy diagnostic settings; treat as compliant
+        if max_retention == 0 or max_retention >= 365:
+            long_retention.append(entry)
+
+    if not storage_settings:
+        return [
+            Finding(
+                check_id="azure-activity-log-retention",
+                title="No Activity Log archive Storage configured",
+                description=(
+                    "No diagnostic setting exports Activity Log to a Storage account for long-term "
+                    "retention. Log Analytics is fine for query but Storage gives the immutable, "
+                    "cost-effective audit archive auditors expect."
+                ),
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.FAIL,
+                domain=CheckDomain.MONITORING,
+                resource_type="Azure::Monitor::DiagnosticSetting",
+                resource_id=f"/subscriptions/{subscription_id}",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                remediation=(
+                    "Add a diagnostic setting that exports the Activity Log to a dedicated "
+                    "Storage account with ≥365-day retention and immutability policies enabled."
+                ),
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["5.1.2"],
+            )
+        ]
+
+    if long_retention:
+        return [
+            Finding(
+                check_id="azure-activity-log-retention",
+                title=f"Activity Log retained ≥365 days in {len(long_retention)} archive(s)",
+                description=(
+                    f"{len(long_retention)} of {len(storage_settings)} Activity Log archive setting(s) "
+                    "meet the ≥365-day retention requirement."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.MONITORING,
+                resource_type="Azure::Monitor::DiagnosticSetting",
+                resource_id=f"/subscriptions/{subscription_id}",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1"],
+                cis_azure_controls=["5.1.2"],
+                details={"settings": storage_settings},
+            )
+        ]
+
+    return [
+        Finding(
+            check_id="azure-activity-log-retention",
+            title="Activity Log archives have retention <365 days",
+            description=(
+                f"All {len(storage_settings)} Activity Log Storage archive(s) have retention "
+                "below the 365-day CIS minimum. Audit evidence may be unavailable for incident "
+                "investigations more than a few months old."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.MONITORING,
+            resource_type="Azure::Monitor::DiagnosticSetting",
+            resource_id=f"/subscriptions/{subscription_id}",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Edit each Activity Log diagnostic setting and set retention policy days to 365 "
+                "(or 0 = forever). Verify the target Storage account has versioning + "
+                "immutability policies for tamper-evidence."
+            ),
+            soc2_controls=["CC7.1"],
+            cis_azure_controls=["5.1.2"],
+            details={"settings": storage_settings},
+        )
+    ]
+
+
+def check_activity_log_alerts(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 5.2.1 - 5.2.9] Activity Log alerts for critical security operations."""
+    try:
+        from azure.mgmt.monitor import MonitorManagementClient
+
+        monitor = client.mgmt_client(MonitorManagementClient)
+        # activity_log_alerts is the right collection for Activity Log alert rules
+        alerts = list(monitor.activity_log_alerts.list_by_subscription_id())
+    except Exception as e:
+        return [
+            Finding(
+                check_id="azure-activity-log-alerts",
+                title="Activity Log alerts check failed",
+                description=f"Could not enumerate Activity Log alerts: {e}",
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.MONITORING,
+                resource_type="Azure::Monitor::ActivityLogAlert",
+                resource_id=f"/subscriptions/{subscription_id}/activityLogAlerts",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.2"],
+                cis_azure_controls=["5.2.1"],
+            )
+        ]
+
+    # Build set of (operationName) covered by enabled alerts
+    covered_ops: set[str] = set()
+    for a in alerts:
+        if not getattr(a, "enabled", False):
+            continue
+        condition = getattr(a, "condition", None)
+        for c in getattr(condition, "all_of", None) or []:
+            field = getattr(c, "field", "")
+            equals = getattr(c, "equals", "")
+            if field == "operationName" and equals:
+                covered_ops.add(equals.lower())
+
+    findings: list[Finding] = []
+    missing: list[dict] = []
+    for op_name, cis_id, label in ACTIVITY_LOG_ALERT_OPERATIONS:
+        if op_name.lower() not in covered_ops:
+            missing.append({"operation": op_name, "cis": cis_id, "label": label})
+
+    if not missing:
+        findings.append(
+            Finding(
+                check_id="azure-activity-log-alerts",
+                title="All required Activity Log alerts are configured",
+                description=(
+                    f"All {len(ACTIVITY_LOG_ALERT_OPERATIONS)} CIS-required Activity Log alerts "
+                    "are present and enabled (NSG/SQL firewall/Policy/Key Vault changes)."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.MONITORING,
+                resource_type="Azure::Monitor::ActivityLogAlert",
+                resource_id=f"/subscriptions/{subscription_id}/activityLogAlerts",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.2"],
+                cis_azure_controls=[c for _, c, _ in ACTIVITY_LOG_ALERT_OPERATIONS],
+                details={"alerts_enabled": len(alerts)},
+            )
+        )
+        return findings
+
+    findings.append(
+        Finding(
+            check_id="azure-activity-log-alerts",
+            title=f"{len(missing)} required Activity Log alert(s) missing",
+            description=(
+                f"{len(missing)} of {len(ACTIVITY_LOG_ALERT_OPERATIONS)} CIS-required alerts are not "
+                "configured. Without these, security-relevant control-plane changes (NSG rule "
+                "changes, Key Vault deletion, Policy assignment changes) go unnoticed."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.MONITORING,
+            resource_type="Azure::Monitor::ActivityLogAlert",
+            resource_id=f"/subscriptions/{subscription_id}/activityLogAlerts",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Create Activity Log alert rules for each missing operationName at subscription "
+                "scope, with an Action Group that pages on-call. Monitor > Alerts > Create > "
+                "Alert rule > Activity Log."
+            ),
+            soc2_controls=["CC7.2"],
+            cis_azure_controls=sorted({m["cis"] for m in missing}),
+            details={"missing": missing, "enabled_alerts": len(alerts)},
+        )
+    )
+    return findings
+
+
+def check_defender_per_plan(
+    client: AzureClient, subscription_id: str, region: str
+) -> list[Finding]:
+    """[CIS 2.1.x] Per-plan Defender for Cloud coverage.
+
+    Reports one finding per required Defender plan so partial coverage is
+    visible. The existing check_defender_enabled stays as a rollup.
+    """
+    try:
+        from azure.mgmt.security import SecurityCenter
+
+        security = client.mgmt_client(SecurityCenter, asc_location="centralus")
+        pricings = {(p.name or ""): p for p in (security.pricings.list().value or [])}
+    except Exception as e:
+        return [
+            Finding(
+                check_id="azure-defender-per-plan",
+                title="Defender per-plan check failed",
+                description=f"Could not enumerate Defender plans: {e}",
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.MONITORING,
+                resource_type="Azure::Security::Pricing",
+                resource_id=f"/subscriptions/{subscription_id}/defender",
+                region=region,
+                account_id=subscription_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC7.1", "CC7.2"],
+            )
+        ]
+
+    findings: list[Finding] = []
+    enabled = []
+    disabled = []
+    for plan in DEFENDER_REQUIRED_PLANS:
+        p = pricings.get(plan)
+        tier = (getattr(p, "pricing_tier", "") or "Free") if p else "NotConfigured"
+        if tier.lower() == "standard":
+            enabled.append(plan)
+        else:
+            disabled.append({"plan": plan, "tier": tier})
+
+    findings.append(
+        Finding(
+            check_id="azure-defender-per-plan",
+            title=f"Defender for Cloud: {len(enabled)}/{len(DEFENDER_REQUIRED_PLANS)} plans Standard",
+            description=(
+                f"Enabled (Standard tier): {', '.join(enabled) or 'none'}. "
+                f"Not enabled: {', '.join(d['plan'] for d in disabled) or 'none'}."
+            ),
+            severity=(
+                Severity.INFO
+                if not disabled
+                else (Severity.HIGH if len(enabled) == 0 else Severity.MEDIUM)
+            ),
+            status=(
+                ComplianceStatus.PASS
+                if not disabled
+                else (ComplianceStatus.FAIL if not enabled else ComplianceStatus.PARTIAL)
+            ),
+            domain=CheckDomain.MONITORING,
+            resource_type="Azure::Security::Pricing",
+            resource_id=f"/subscriptions/{subscription_id}/defender/perPlan",
+            region=region,
+            account_id=subscription_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Enable Standard tier on each missing Defender plan: Defender for Cloud > "
+                "Environment settings > select subscription > Defender plans."
+            ),
+            soc2_controls=["CC7.1", "CC7.2"],
+            cis_azure_controls=["2.1.1", "2.1.2", "2.1.3", "2.1.4"],
+            details={"enabled": enabled, "disabled": disabled},
+        )
+    )
     return findings
 
 

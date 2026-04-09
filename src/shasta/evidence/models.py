@@ -72,6 +72,8 @@ class Finding(BaseModel):
     remediation: str = ""  # Brief remediation guidance
     details: dict[str, Any] = Field(default_factory=dict)  # Raw evidence data
     soc2_controls: list[str] = Field(default_factory=list)  # e.g., ["CC6.1", "CC6.2"]
+    cis_azure_controls: list[str] = Field(default_factory=list)  # e.g., ["1.1.4", "5.2.1"]
+    mcsb_controls: list[str] = Field(default_factory=list)  # e.g., ["IM-6", "DP-5"]
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

@@ -34,17 +34,23 @@ Shasta scans your cloud infrastructure. Whitney scans your AI systems and code. 
 | **Encryption** | EBS encryption by default, EBS volume encryption, RDS encryption at rest, RDS public access, RDS backups | CC6.6, CC6.7 |
 | **Monitoring** | CloudTrail configuration, GuardDuty status (multi-region with top severity-ranked active findings), AWS Config recording, Inspector vulnerability scanning | CC7.1, CC7.2, CC8.1 |
 
-#### Azure Checks (22)
+#### Azure Checks (85+, mapped to CIS Azure v3.0 + Microsoft Cloud Security Benchmark)
 
-| Domain | Checks | SOC 2 Controls |
-|--------|--------|----------------|
-| **Identity & Access** | Conditional Access MFA, privileged directory roles, RBAC least privilege, inactive users, guest access, service principal hygiene | CC6.1, CC6.2, CC6.3 |
-| **Networking** | NSG unrestricted ingress, NSG default rules, VNet/NSG flow logs, public IP exposure | CC6.6 |
-| **Storage** | Storage account encryption (TLS), HTTPS enforcement, blob public access, soft delete & versioning | CC6.7 |
-| **Encryption** | Managed disk encryption, SQL TDE, Key Vault config (purge protection), SQL public access | CC6.6, CC6.7 |
-| **Monitoring** | Activity Log export, Microsoft Defender for Cloud, Azure Policy compliance, Monitor alerts | CC7.1, CC7.2, CC8.1 |
+| Domain | Checks | SOC 2 / CIS Azure |
+|--------|--------|-------------------|
+| **Identity & Access (Entra ID + RBAC)** | Conditional Access MFA, **block legacy authentication (CIS 1.1.1)**, **MFA for Azure Management cloud app (CIS 1.1.4)**, privileged directory roles, **PIM eligibility vs permanent assignments (CIS 1.23)**, RBAC least privilege, **custom role wildcard Actions (CIS 1.21)**, **classic / co-administrators (CIS 1.22)**, **guest invitation restrictions (CIS 1.3)**, inactive users, guest access, service principal hygiene | CC6.1–6.3, CIS 1.x |
+| **Networking** | NSG unrestricted ingress, NSG default rules, legacy NSG flow logs, **VNet flow logs (post-2025 successor, CIS 6.4)**, **Network Watcher per-region coverage (CIS 6.5)**, public IP exposure | CC6.6, CIS 6.x |
+| **Storage** | TLS 1.2 minimum, HTTPS enforcement, blob public access, soft delete & versioning, **`allowSharedKeyAccess` disabled (CIS 3.3)**, **`allowCrossTenantReplication` disabled (CIS 3.15)**, **network default-Deny (CIS 3.8)** | CC6.6–6.7, CIS 3.x |
+| **Encryption / SQL / Key Vault** | Managed disk encryption, SQL TDE, **SQL server-level auditing ≥90 d (CIS 4.1.1)**, **SQL Entra ID admin (CIS 4.1.3)**, **SQL min TLS 1.2 (CIS 4.1.7)**, SQL public access, Key Vault soft delete + purge protection, **Key Vault RBAC permission model (CIS 8.5)**, **Key Vault `publicNetworkAccess`+ network ACLs (CIS 8.6/8.7)**, **Key/Secret expiry on every item (CIS 8.3/8.4)** | CC6.7, CIS 4.x / 8.x |
+| **Databases (new)** | **Cosmos DB**: `disableLocalAuth`, public access, firewall, key-based metadata write, CMK. **PostgreSQL Flexible Server**: `require_secure_transport`, log_connections / log_disconnections / log_checkpoints, public access. **MySQL Flexible Server**: `require_secure_transport`, `tls_version`, `audit_log_enabled` | CC6.1, CC6.7, CC7.1, CIS 4.3–4.5 |
+| **App Service / Functions (new)** | HTTPS-only, min TLS, FTPS state, remote debugging, client certificates, managed identity, public network access, Easy Auth | CC6.1, CC6.6–6.7, CIS 9.x |
+| **Backup / Recovery Services Vault (new)** | RSV exists, soft delete (preferably AlwaysON), immutability locked, Cross Region Restore, GRS/GZRS redundancy, CMK encryption, Multi-User Authorization, public network access | A1.1–A1.2, MCSB BR-1/BR-2 |
+| **Monitoring & Logging** | Activity Log diagnostic settings, **Activity Log retention ≥365 d (CIS 5.1.2)**, **Activity Log alerts for NSG/SQL firewall/Policy/Key Vault (CIS 5.2.1–5.2.8)**, Defender for Cloud (rollup) and **per-plan breakdown across 14 Defender plans (CIS 2.1.x)**, Azure Policy compliance, Monitor alerts | CC7.1–7.2, CC8.1, CIS 2.x / 5.x |
+| **Cross-cutting walkers (new)** | **Private Endpoint walker** across Storage / Key Vault / SQL / Cosmos / ACR / App Service / Cognitive Services. **Diagnostic settings matrix walker** verifies expected log categories per resource type (KV `AuditEvent`, SQL `SQLSecurityAuditEvents`, Storage R/W/D, NSG events, AKS audit, RSV reports). **Governance auditor**: management group hierarchy, security initiative assignment, CanNotDelete locks on sensitive resource groups, required tag enforcement | CC2.1, CC4.1, CIS 5.1.4–5.1.7 |
 
-Every check produces a `Finding` object with: severity, compliance status, resource ID, cloud provider, SOC 2 control mapping, plain-English description, and remediation guidance.
+Every Azure finding now carries `cis_azure_controls` and `mcsb_controls` lists alongside `soc2_controls` for cross-framework reporting. Azure scanning supports **multi-subscription iteration** via `run_azure_multi_subscription`, mirroring the AWS multi-region pattern.
+
+Every check produces a `Finding` object with: severity, compliance status, resource ID, cloud provider, SOC 2 + CIS Azure + MCSB control mappings, plain-English description, and remediation guidance.
 
 ### Deterministic by Design — No LLM in the Detection Pipeline
 
@@ -767,6 +773,11 @@ shasta/
 - [x] ~~Multi-region encryption / networking / vulnerabilities / pentest~~ — `run_all_*` helpers iterate every enabled region with rollup PASS findings + per-region FAIL findings
 - [x] ~~Root account activity detection~~ — parses credential report `password_last_used` + `access_key_*_last_used_date`, fails HIGH if root used within 90 days (CC6.1/CC6.3)
 - [x] ~~GuardDuty top findings surfacing~~ — pulls highest-severity active findings per region with critical-type prefix detection (credential exfiltration, cryptomining, trojans, backdoors, Impact/Exfiltration tactics)
+- [x] ~~Azure parity sweep — Stage 1 (CIS critical gaps)~~ — block legacy auth, MFA-for-Azure-Management, PIM eligibility, classic admins, custom-role wildcards, guest invites, Activity Log retention + CIS 5.2.x alerts, Defender per-plan, storage shared-key/cross-tenant/default-deny, SQL auditing/Entra-admin/min-TLS, Key Vault RBAC mode/PNA/expiry, VNet flow logs migration check, Network Watcher per-region
+- [x] ~~Azure parity sweep — Stage 2 (new resource types)~~ — Cosmos DB, PostgreSQL/MySQL Flexible Server, App Service / Functions, Recovery Services Vault modules
+- [x] ~~Azure parity sweep — Stage 3 (cross-cutting walkers)~~ — Private Endpoint walker (KV/Storage/SQL/Cosmos/ACR/App Service/Cognitive), diagnostic settings matrix walker, governance auditor (management groups, security initiative, locks, required tags)
+- [x] ~~Azure multi-subscription scanning~~ — `AzureClient.list_subscriptions` / `for_subscription` and `run_azure_multi_subscription` mirror the AWS multi-region pattern
+- [x] ~~CIS Azure + MCSB control mapping on every finding~~ — added `cis_azure_controls` and `mcsb_controls` to the Finding model
 - [x] ~~Role trust policy analysis~~ — detects overpermissive `Principal: "*"` in IAM role trust policies
 - [x] ~~EBS snapshot public exposure~~ — flags snapshots shared with `all`
 - [x] ~~RDS snapshot public access~~ — flags publicly shared database snapshots

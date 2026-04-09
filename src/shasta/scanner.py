@@ -11,7 +11,6 @@ from typing import Any
 from shasta.compliance.mapper import enrich_findings_with_controls
 from shasta.evidence.models import CheckDomain, CloudProvider, Finding, ScanResult
 
-
 # Domains where AWS checks are global (not per-region)
 _AWS_GLOBAL_DOMAINS = {CheckDomain.IAM}
 
@@ -203,7 +202,7 @@ def _run_aws_checks_multi_region(
 
 
 def _run_azure_checks(azure_client: Any, domains: list[CheckDomain]) -> list[Finding]:
-    """Run Azure-specific checks across requested domains."""
+    """Run Azure-specific checks across requested domains for one subscription."""
     from shasta.azure.encryption import run_all_azure_encryption_checks
     from shasta.azure.iam import run_all_azure_iam_checks
     from shasta.azure.monitoring import run_all_azure_monitoring_checks
@@ -231,4 +230,92 @@ def _run_azure_checks(azure_client: Any, domains: list[CheckDomain]) -> list[Fin
         runner = azure_domain_runners.get(domain)
         if runner:
             findings.extend(runner(azure_client))
+
+    # Run additional Stage 2/3 modules unconditionally when their domain is requested.
+    findings.extend(_run_azure_extras(azure_client, domains))
+    return findings
+
+
+def _run_azure_extras(azure_client: Any, domains: list[CheckDomain]) -> list[Finding]:
+    """Run the Stage 2/3 Azure modules: databases, app service, backup, walkers, governance."""
+    extras: list[Finding] = []
+
+    # Stage 2: new resource-type modules
+    if CheckDomain.STORAGE in domains:
+        try:
+            from shasta.azure.databases import run_all_azure_database_checks
+
+            extras.extend(run_all_azure_database_checks(azure_client))
+        except Exception:
+            pass
+
+    if CheckDomain.COMPUTE in domains:
+        try:
+            from shasta.azure.appservice import run_all_azure_appservice_checks
+
+            extras.extend(run_all_azure_appservice_checks(azure_client))
+        except Exception:
+            pass
+
+    if CheckDomain.MONITORING in domains:
+        try:
+            from shasta.azure.backup import run_all_azure_backup_checks
+
+            extras.extend(run_all_azure_backup_checks(azure_client))
+        except Exception:
+            pass
+
+    # Stage 3: cross-cutting walkers — run when networking or monitoring is requested
+    if CheckDomain.NETWORKING in domains:
+        try:
+            from shasta.azure.private_endpoints import (
+                run_all_azure_private_endpoint_checks,
+            )
+
+            extras.extend(run_all_azure_private_endpoint_checks(azure_client))
+        except Exception:
+            pass
+
+    if CheckDomain.MONITORING in domains:
+        try:
+            from shasta.azure.diagnostic_settings import (
+                run_all_azure_diagnostic_settings_checks,
+            )
+
+            extras.extend(run_all_azure_diagnostic_settings_checks(azure_client))
+        except Exception:
+            pass
+
+        try:
+            from shasta.azure.governance import run_all_azure_governance_checks
+
+            extras.extend(run_all_azure_governance_checks(azure_client))
+        except Exception:
+            pass
+
+    return extras
+
+
+def run_azure_multi_subscription(
+    azure_client: Any,
+    domains: list[CheckDomain],
+    subscription_ids: list[str] | None = None,
+) -> list[Finding]:
+    """Run Azure checks across multiple subscriptions, mirroring the AWS multi-region pattern.
+
+    If ``subscription_ids`` is None, every subscription the credential can see
+    is scanned.
+    """
+    findings: list[Finding] = []
+    if subscription_ids is None:
+        subs = azure_client.list_subscriptions()
+        subscription_ids = [s["subscription_id"] for s in subs if s.get("subscription_id")]
+
+    for sid in subscription_ids:
+        try:
+            sib = azure_client.for_subscription(sid)
+            sib.validate_credentials()
+            findings.extend(_run_azure_checks(sib, domains))
+        except Exception:
+            continue
     return findings

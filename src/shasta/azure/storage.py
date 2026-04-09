@@ -51,6 +51,17 @@ def run_all_azure_storage_checks(client: AzureClient) -> list[Finding]:
                     storage_client, account, acct_name, acct_id, acct_rg, sub_id, region
                 )
             )
+            findings.extend(
+                _check_shared_key_access(account, acct_name, acct_id, acct_rg, sub_id, region)
+            )
+            findings.extend(
+                _check_cross_tenant_replication(
+                    account, acct_name, acct_id, acct_rg, sub_id, region
+                )
+            )
+            findings.extend(
+                _check_network_default_deny(account, acct_name, acct_id, acct_rg, sub_id, region)
+            )
 
         if not accounts:
             findings.append(
@@ -306,3 +317,163 @@ def _check_storage_soft_delete(
 
     except Exception:
         return []
+
+
+def _check_shared_key_access(account, name, acct_id, rg, sub_id, region) -> list[Finding]:
+    """[CIS 3.3] Storage account should disable shared key (account key) access."""
+    allow_shared = getattr(account, "allow_shared_key_access", None)
+    # When unset (None), Azure defaults allow shared key — treat as fail
+    if allow_shared is False:
+        return [
+            Finding(
+                check_id="azure-storage-shared-key-access",
+                title=f"Storage account '{name}' has shared key access disabled",
+                description="Account key auth is disabled — only Entra ID identities can access this account.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.STORAGE,
+                resource_type="Azure::Storage::StorageAccount",
+                resource_id=acct_id,
+                region=getattr(account, "location", None) or region,
+                account_id=sub_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.1", "CC6.7"],
+                cis_azure_controls=["3.3"],
+                mcsb_controls=["IM-1"],
+                details={"storage_account": name, "resource_group": rg},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-storage-shared-key-access",
+            title=f"Storage account '{name}' allows shared key authentication",
+            description=(
+                "Shared key (account key) auth is enabled. Anyone with the account key bypasses "
+                "Entra ID identity, RBAC, Conditional Access, and audit attribution. Disable it "
+                "to force Entra ID-only access."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.STORAGE,
+            resource_type="Azure::Storage::StorageAccount",
+            resource_id=acct_id,
+            region=getattr(account, "location", None) or region,
+            account_id=sub_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Set allowSharedKeyAccess = false on the storage account. Migrate any apps using "
+                "account keys to managed identity + Entra ID auth first. Portal: Storage account "
+                "> Configuration > Allow storage account key access > Disabled."
+            ),
+            soc2_controls=["CC6.1", "CC6.7"],
+            cis_azure_controls=["3.3"],
+            mcsb_controls=["IM-1"],
+            details={"storage_account": name, "resource_group": rg},
+        )
+    ]
+
+
+def _check_cross_tenant_replication(account, name, acct_id, rg, sub_id, region) -> list[Finding]:
+    """[CIS 3.15] Storage accounts should not allow cross-tenant object replication."""
+    allow = getattr(account, "allow_cross_tenant_replication", None)
+    if allow is False:
+        return [
+            Finding(
+                check_id="azure-storage-cross-tenant-replication",
+                title=f"Storage account '{name}' blocks cross-tenant replication",
+                description="Cross-tenant object replication is disabled — data cannot be replicated to a foreign tenant.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.STORAGE,
+                resource_type="Azure::Storage::StorageAccount",
+                resource_id=acct_id,
+                region=getattr(account, "location", None) or region,
+                account_id=sub_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.7"],
+                cis_azure_controls=["3.15"],
+                details={"storage_account": name, "resource_group": rg},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-storage-cross-tenant-replication",
+            title=f"Storage account '{name}' allows cross-tenant replication",
+            description=(
+                "allowCrossTenantReplication is enabled. A user with Storage Object Replication "
+                "permissions can replicate blobs to a Storage account in a foreign Entra ID tenant, "
+                "creating a stealth data-exfiltration channel."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.STORAGE,
+            resource_type="Azure::Storage::StorageAccount",
+            resource_id=acct_id,
+            region=getattr(account, "location", None) or region,
+            account_id=sub_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Set allowCrossTenantReplication = false on the storage account. "
+                "Portal: Storage account > Object replication > Advanced settings."
+            ),
+            soc2_controls=["CC6.7"],
+            cis_azure_controls=["3.15"],
+            details={"storage_account": name, "resource_group": rg},
+        )
+    ]
+
+
+def _check_network_default_deny(account, name, acct_id, rg, sub_id, region) -> list[Finding]:
+    """[CIS 3.8] Storage account network rules should default Deny."""
+    rules = getattr(account, "network_rule_set", None)
+    default_action = getattr(rules, "default_action", "Allow") if rules else "Allow"
+    bypass = getattr(rules, "bypass", "") if rules else ""
+
+    if str(default_action).lower() == "deny":
+        return [
+            Finding(
+                check_id="azure-storage-network-default-deny",
+                title=f"Storage account '{name}' network default = Deny",
+                description=f"Network rules default to Deny (bypass='{bypass}'). Only allowed networks/IPs can reach the account.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.STORAGE,
+                resource_type="Azure::Storage::StorageAccount",
+                resource_id=acct_id,
+                region=getattr(account, "location", None) or region,
+                account_id=sub_id,
+                cloud_provider=CloudProvider.AZURE,
+                soc2_controls=["CC6.6"],
+                cis_azure_controls=["3.8"],
+                mcsb_controls=["NS-2"],
+                details={"storage_account": name, "default_action": "Deny", "bypass": bypass},
+            )
+        ]
+    return [
+        Finding(
+            check_id="azure-storage-network-default-deny",
+            title=f"Storage account '{name}' allows traffic from any network",
+            description=(
+                f"Network rules default to '{default_action}' — the account is reachable from "
+                "the public internet. CIS requires default = Deny with explicit allow rules for "
+                "trusted VNets, IPs, or trusted Azure services only."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.STORAGE,
+            resource_type="Azure::Storage::StorageAccount",
+            resource_id=acct_id,
+            region=getattr(account, "location", None) or region,
+            account_id=sub_id,
+            cloud_provider=CloudProvider.AZURE,
+            remediation=(
+                "Switch the storage firewall to 'Selected networks'. Add VNet/subnet rules and "
+                "trusted Microsoft services bypass as required. Portal: Storage account > "
+                "Networking > Public network access > Enabled from selected virtual networks."
+            ),
+            soc2_controls=["CC6.6"],
+            cis_azure_controls=["3.8"],
+            mcsb_controls=["NS-2"],
+            details={"storage_account": name, "default_action": default_action, "bypass": bypass},
+        )
+    ]

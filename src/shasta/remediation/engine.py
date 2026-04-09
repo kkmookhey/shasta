@@ -970,6 +970,341 @@ resource "aws_organizations_policy" "require_owner_tag" {
 
 
 # ---------------------------------------------------------------------------
+# AWS Stage 1 (parity sweep): EC2/EKS/ECS, KMS, IAM, CloudWatch CIS 4.x
+# ---------------------------------------------------------------------------
+
+
+@_tf("ec2-imdsv2-enforced")
+def _tf_aws_imdsv2(f: Finding) -> str:
+    return '''\
+# Enforce IMDSv2 on every existing instance
+resource "aws_ec2_instance_metadata_defaults" "account_default" {
+  http_tokens                 = "required"
+  http_endpoint               = "enabled"
+  http_put_response_hop_limit = 1
+}
+
+# For new instances launched via Terraform, set on each aws_instance resource:
+# resource "aws_instance" "example" {
+#   metadata_options {
+#     http_tokens                 = "required"
+#     http_endpoint               = "enabled"
+#     http_put_response_hop_limit = 1
+#   }
+# }
+
+# To remediate existing instances via CLI:
+#   aws ec2 modify-instance-metadata-options --instance-id i-xxx \\
+#       --http-tokens required --http-endpoint enabled --http-put-response-hop-limit 1'''
+
+
+@_tf("ec2-instance-profile")
+def _tf_aws_ec2_instance_profile(f: Finding) -> str:
+    return '''\
+# Minimal IAM role for an EC2 instance with no AWS access (extend as needed)
+resource "aws_iam_role" "ec2_baseline" {
+  name = "ec2-baseline"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+# Attach SSM managed instance core for Session Manager (no SSH needed)
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.ec2_baseline.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ec2_baseline" {
+  name = "ec2-baseline"
+  role = aws_iam_role.ec2_baseline.name
+}
+
+# Then attach to existing instances:
+#   aws ec2 associate-iam-instance-profile --instance-id i-xxx \\
+#       --iam-instance-profile Name=ec2-baseline'''
+
+
+@_tf("eks-private-endpoint")
+def _tf_aws_eks_private(f: Finding) -> str:
+    cluster = f.details.get("cluster", "main")
+    return f'''\
+resource "aws_eks_cluster" "{_aws_safe(cluster)}" {{
+  name     = "{cluster}"
+  role_arn = aws_iam_role.eks_cluster.arn
+
+  vpc_config {{
+    subnet_ids              = aws_subnet.private[*].id
+    endpoint_public_access  = false  # CIS 5.4.x
+    endpoint_private_access = true
+    security_group_ids      = [aws_security_group.eks_control_plane.id]
+  }}
+
+  # ... existing config ...
+}}'''
+
+
+@_tf("eks-audit-logging")
+def _tf_aws_eks_audit(f: Finding) -> str:
+    cluster = f.details.get("cluster", "main")
+    return f'''\
+resource "aws_eks_cluster" "{_aws_safe(cluster)}" {{
+  name = "{cluster}"
+  # ... existing config ...
+
+  enabled_cluster_log_types = [
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler",
+  ]
+}}
+
+resource "aws_cloudwatch_log_group" "{_aws_safe(cluster)}_eks" {{
+  name              = "/aws/eks/{cluster}/cluster"
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.logs.arn
+}}'''
+
+
+@_tf("eks-secrets-encryption")
+def _tf_aws_eks_secrets(f: Finding) -> str:
+    cluster = f.details.get("cluster", "main")
+    return f'''\
+resource "aws_kms_key" "eks_secrets" {{
+  description             = "EKS envelope encryption"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+}}
+
+resource "aws_eks_cluster" "{_aws_safe(cluster)}" {{
+  name = "{cluster}"
+  # ... existing config ...
+
+  encryption_config {{
+    resources = ["secrets"]
+    provider {{
+      key_arn = aws_kms_key.eks_secrets.arn
+    }}
+  }}
+}}'''
+
+
+@_tf("ecs-task-privileged")
+def _tf_aws_ecs_no_privileged(f: Finding) -> str:
+    return '''\
+resource "aws_ecs_task_definition" "app" {
+  family = "app"
+  # ... existing config ...
+
+  container_definitions = jsonencode([{
+    name       = "app"
+    image      = "..."
+    privileged = false  # Never true unless absolutely necessary
+    user       = "1000"  # Non-root
+    readonlyRootFilesystem = true
+    # ... rest of definition ...
+  }])
+}'''
+
+
+@_tf("ecs-task-root-user")
+def _tf_aws_ecs_no_root(f: Finding) -> str:
+    return '''\
+# In the Dockerfile of the container image:
+#   FROM python:3.12-slim
+#   RUN useradd -u 1000 -m app
+#   USER 1000
+#
+# In the task definition, mirror the same user:
+resource "aws_ecs_task_definition" "app" {
+  family = "app"
+  # ... existing config ...
+
+  container_definitions = jsonencode([{
+    name  = "app"
+    image = "..."
+    user  = "1000"  # Non-root uid matching the Dockerfile
+    # ... rest of definition ...
+  }])
+}'''
+
+
+@_tf("kms-key-rotation")
+def _tf_aws_kms_rotation(f: Finding) -> str:
+    return '''\
+# Enable rotation on every existing customer-managed CMK:
+#
+# for key_id in $(aws kms list-keys --query "Keys[].KeyId" --output text); do
+#   meta=$(aws kms describe-key --key-id "$key_id" --query "KeyMetadata.KeyManager" --output text)
+#   spec=$(aws kms describe-key --key-id "$key_id" --query "KeyMetadata.KeySpec" --output text)
+#   if [ "$meta" = "CUSTOMER" ] && [ "$spec" = "SYMMETRIC_DEFAULT" ]; then
+#     aws kms enable-key-rotation --key-id "$key_id"
+#   fi
+# done
+
+# For new keys via Terraform, always include enable_key_rotation = true:
+resource "aws_kms_key" "example" {
+  description             = "..."
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+}'''
+
+
+@_tf("kms-key-policy-wildcards")
+def _tf_aws_kms_policy(f: Finding) -> str:
+    return '''\
+# Replace wildcard key policies with scoped principals
+resource "aws_kms_key" "example" {
+  description             = "..."
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowAccountRoot"
+        Effect = "Allow"
+        Principal = { AWS = "arn:aws:iam::ACCOUNT_ID:root" }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowSpecificService"
+        Effect = "Allow"
+        Principal = { Service = "logs.us-east-1.amazonaws.com" }
+        Action = ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*",
+                  "kms:GenerateDataKey*", "kms:Describe*"]
+        Resource = "*"
+      }
+    ]
+  })
+}'''
+
+
+@_tf("iam-policy-wildcards")
+def _tf_aws_iam_no_wildcards(f: Finding) -> str:
+    policies = f.details.get("wildcard_policies", [])
+    names = ", ".join(p.get("policy_name", "") for p in policies[:3]) or "<policy-name>"
+    return f'''\
+# Replace wildcard policies ({names}) with scoped equivalents.
+# Use IAM Access Analyzer policy generation to derive a policy from
+# CloudTrail data:
+#
+#   aws accessanalyzer start-policy-generation \\
+#     --policy-generation-details principalArn=arn:aws:iam::ACCOUNT_ID:role/MyRole \\
+#     --cloud-trail-details accessRole=arn:aws:iam::ACCOUNT_ID:role/AccessAnalyzerRole,trails=[{{cloudTrailArn=arn:aws:cloudtrail:us-east-1:ACCOUNT_ID:trail/management}}],startTime=2026-01-01T00:00:00Z
+
+# Or define a scoped policy explicitly via Terraform:
+resource "aws_iam_policy" "scoped_replacement" {{
+  name        = "scoped-replacement"
+  description = "Scoped replacement for a wildcard policy"
+
+  policy = jsonencode({{
+    Version = "2012-10-17"
+    Statement = [{{
+      Effect = "Allow"
+      Action = [
+        "s3:GetObject",
+        "s3:PutObject",
+      ]
+      Resource = "arn:aws:s3:::specific-bucket/specific-prefix/*"
+    }}]
+  }})
+}}'''
+
+
+@_tf("iam-role-trust-external")
+def _tf_aws_iam_external_id(f: Finding) -> str:
+    return '''\
+# Add an ExternalId condition to every cross-account role trust policy
+resource "aws_iam_role" "third_party_integration" {
+  name = "third-party-integration"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { AWS = "arn:aws:iam::THIRD_PARTY_ACCOUNT_ID:root" }
+      Action   = "sts:AssumeRole"
+      Condition = {
+        StringEquals = {
+          # Generate a UUID and share out-of-band with the third party
+          "sts:ExternalId" = "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    }]
+  })
+}'''
+
+
+@_tf("cloudwatch-alarms-cis-4")
+def _tf_aws_cwl_cis_4(f: Finding) -> str:
+    return '''\
+# CloudTrail metric filters + alarms for CIS AWS 4.1-4.15
+# This is a representative sample — the full set is 15 filter+alarm pairs.
+# Run them in the home region of the multi-region trail.
+
+resource "aws_sns_topic" "secops_alerts" {
+  name = "secops-cis-4-x-alerts"
+}
+
+# CIS 4.5 — CloudTrail config changes
+resource "aws_cloudwatch_log_metric_filter" "cis_4_5" {
+  name           = "cis-4-5-cloudtrail-changes"
+  log_group_name = "CloudTrail/management-events"
+  pattern = <<-EOT
+    { ($.eventName = CreateTrail) || ($.eventName = UpdateTrail) ||
+      ($.eventName = DeleteTrail) || ($.eventName = StartLogging) ||
+      ($.eventName = StopLogging) }
+  EOT
+
+  metric_transformation {
+    name      = "CIS-4-5-CloudTrailChanges"
+    namespace = "CISBenchmark"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cis_4_5" {
+  alarm_name          = "cis-4-5-cloudtrail-changes"
+  metric_name         = "CIS-4-5-CloudTrailChanges"
+  namespace           = "CISBenchmark"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_actions       = [aws_sns_topic.secops_alerts.arn]
+}
+
+# Repeat the metric_filter + metric_alarm pair for each of CIS 4.1-4.15.
+# CIS Foundations Benchmark v3.0 spec lists the exact filter pattern for each.'''
+
+
+@_tf("aws-config-conformance-packs")
+def _tf_aws_conformance_pack(f: Finding) -> str:
+    return '''\
+# Deploy the CIS AWS Foundations Benchmark v3.0 conformance pack
+resource "aws_config_conformance_pack" "cis_aws_v3" {
+  name = "cis-aws-foundations-v3"
+
+  template_s3_uri = "s3://aws-managed-config-conformance-packs/Operational-Best-Practices-for-CIS-AWS-v3.0.yaml"
+}
+
+# Or use AWS-managed conformance pack templates directly via the console:
+# Config > Conformance packs > Deploy conformance pack > Use sample template
+# > select "Operational Best Practices for CIS AWS v3.0".'''
+
+
+# ---------------------------------------------------------------------------
 # Azure (azurerm) Terraform templates — covers the Stage 1/2/3 CIS Azure
 # v3.0 checks. Each template is a focused snippet that the operator drops
 # into the matching resource block; full resource definitions are intentionally
@@ -2066,6 +2401,167 @@ EXPLANATIONS: dict[str, dict] = {
         "explanation": "DocumentDB audit logs capture authentication, DDL, and DML events. Without audit log export, anomalous queries leave no trace.",
         "steps": [
             "aws docdb modify-db-cluster --cloudwatch-logs-export-configuration EnableLogTypes=audit",
+        ],
+        "effort": "quick",
+    },
+    # ----- AWS parity sweep Stage 1: compute / KMS / IAM / CloudWatch -----
+    "ec2-imdsv2-enforced": {
+        "explanation": "IMDSv1 lets any process on an EC2 instance make a simple GET request to 169.254.169.254 and read the IAM role credentials. The Capital One 2019 breach used a server-side request forgery on a web app to do exactly this. IMDSv2 requires a session token via PUT, which SSRF cannot trivially perform.",
+        "steps": [
+            "Set the account-level default: aws ec2 modify-instance-metadata-defaults --http-tokens required --http-endpoint enabled --http-put-response-hop-limit 1",
+            "For each existing instance: aws ec2 modify-instance-metadata-options --instance-id <id> --http-tokens required --http-endpoint enabled --http-put-response-hop-limit 1",
+            "Verify apps still work — most modern AWS SDKs use IMDSv2 by default since 2019",
+        ],
+        "effort": "moderate",
+    },
+    "ec2-public-ips": {
+        "explanation": "EC2 instances with public IPv4 addresses are directly reachable from the internet. Each one is a potential attack surface — verify each is intentional (bastion, NAT, customer-facing app) and not drift from a private-subnet design.",
+        "steps": [
+            "Inventory the instances and decide which need public IPs",
+            "For instances that don't, move them behind a load balancer or NAT gateway",
+            "For instances that do, lock down the security group to specific source CIDRs and ports",
+        ],
+        "effort": "moderate",
+    },
+    "ec2-instance-profile": {
+        "explanation": "Without an instance profile, the only way an app on the instance can call AWS APIs is via long-lived access keys baked into the AMI or fetched from a config file — both anti-patterns. Instance profiles use short-lived credentials managed by IAM.",
+        "steps": [
+            "Create a least-privilege IAM role for the workload",
+            "Wrap it in an instance profile",
+            "aws ec2 associate-iam-instance-profile --instance-id <id> --iam-instance-profile Name=<profile>",
+        ],
+        "effort": "quick",
+    },
+    "ec2-ami-age": {
+        "explanation": "Stale AMIs accumulate unpatched CVEs. Each instance running a stale AMI is shipping a snapshot of the security state from the day the AMI was baked. Modern patterns rebuild the AMI on a regular cadence and roll instances.",
+        "steps": [
+            "Set up an EC2 Image Builder pipeline that rebuilds the base AMI weekly or biweekly",
+            "Configure Auto Scaling Groups to use the latest AMI version",
+            "Trigger an instance refresh after each AMI rebuild",
+        ],
+        "effort": "significant",
+    },
+    "eks-private-endpoint": {
+        "explanation": "A public EKS API endpoint is reachable from anywhere on the internet. Even with IAM/OIDC auth, it's a brute-force / credential-spray surface. Private cluster + bastion is the recommended pattern; if public access is required, restrict to known CIDRs.",
+        "steps": [
+            "aws eks update-cluster-config --name <cluster> --resources-vpc-config endpointPublicAccess=false,endpointPrivateAccess=true",
+            "Set up a bastion host or VPN to reach the private endpoint",
+            "Update kubeconfig to use the private endpoint URL",
+        ],
+        "effort": "moderate",
+    },
+    "eks-audit-logging": {
+        "explanation": "Without EKS audit + authenticator logs, you cannot reconstruct who issued kubectl commands during a security incident. EKS lets you enable api / audit / authenticator / controllerManager / scheduler — all five are recommended for SOC 2.",
+        "steps": [
+            "aws eks update-cluster-config --name <cluster> --logging '{\"clusterLogging\":[{\"types\":[\"api\",\"audit\",\"authenticator\",\"controllerManager\",\"scheduler\"],\"enabled\":true}]}'",
+            "Set retention on the /aws/eks/<cluster>/cluster log group to 90+ days",
+        ],
+        "effort": "quick",
+    },
+    "eks-secrets-encryption": {
+        "explanation": "By default, Kubernetes secrets are stored base64-encoded (not encrypted) in etcd. A stolen etcd backup or compromised control plane node exposes every secret in the cluster. EKS supports envelope encryption with a customer-managed KMS key.",
+        "steps": [
+            "Create a customer-managed KMS key",
+            "aws eks associate-encryption-config --cluster-name <name> --encryption-config resources=secrets,provider={keyArn=<arn>}",
+            "Verify by creating a test secret and inspecting via etcdctl (in a lab cluster)",
+        ],
+        "effort": "moderate",
+    },
+    "ecs-task-privileged": {
+        "explanation": "Privileged containers can mount host filesystems, load kernel modules, and escape the container boundary. They should only be used for very specific systems-level workloads (e.g. node-exporter, network plugins), never for application code.",
+        "steps": [
+            "Remove privileged=true from the container definition",
+            "If a system-level capability is genuinely required, grant it specifically via linuxParameters.capabilities.add",
+        ],
+        "effort": "quick",
+    },
+    "ecs-task-root-user": {
+        "explanation": "Containers running as root that get exploited give the attacker root inside the container — which, combined with any kernel CVE or container escape bug, can compromise the host. Containerized apps almost never need root.",
+        "steps": [
+            "In the Dockerfile add `USER 1000` (or your non-root uid)",
+            "In the task definition set 'user': '1000' on the container",
+            "Verify the app can write to whatever directories it needs (often /tmp)",
+        ],
+        "effort": "moderate",
+    },
+    "kms-key-rotation": {
+        "explanation": "Without rotation, the same key material protects data forever. NIST SP 800-57 recommends annual rotation for symmetric keys protecting bulk data. AWS KMS auto-rotation is one boolean — there's no excuse to leave it off.",
+        "steps": [
+            "For each customer-managed CMK: aws kms enable-key-rotation --key-id <key-id>",
+            "Asymmetric and HMAC keys don't support rotation; that's expected",
+        ],
+        "effort": "quick",
+    },
+    "kms-key-policy-wildcards": {
+        "explanation": "A wildcard principal + wildcard action on a KMS key is the encryption-key equivalent of a public S3 bucket: anyone in any AWS account can encrypt, decrypt, schedule deletion, or take ownership of the key. And unlike S3 Public Access Block, there's no account-wide guardrail that prevents it.",
+        "steps": [
+            "Rewrite the key policy to scope Principal to specific account or role ARNs",
+            "If cross-account access is required, use a specific account principal plus a Condition narrowing the source",
+            "aws kms put-key-policy --key-id <id> --policy file://policy.json",
+        ],
+        "effort": "moderate",
+    },
+    "kms-scheduled-deletion": {
+        "explanation": "A key in PendingDeletion will be permanently destroyed in 7-30 days, making any data encrypted with it permanently unrecoverable. This often indicates either a mistake (cancel deletion) or a malicious action (alert SecOps and review CloudTrail).",
+        "steps": [
+            "If the deletion is a mistake: aws kms cancel-key-deletion --key-id <id>; aws kms enable-key --key-id <id>",
+            "If unauthorized: search CloudTrail for eventName=ScheduleKeyDeletion and identify the principal",
+            "Add an SCP denying kms:ScheduleKeyDeletion except via a break-glass role",
+        ],
+        "effort": "quick",
+    },
+    "kms-no-unrestricted-principal": {
+        "explanation": "Cross-account KMS access is legitimate but should always carry a SourceArn / SourceAccount condition. Without it, if the foreign account is ever compromised, the attacker inherits full use of the key.",
+        "steps": [
+            "Add a Condition block to each cross-account grant",
+            "Use aws:SourceAccount, aws:PrincipalArn, or kms:CallerAccount to narrow the access",
+        ],
+        "effort": "moderate",
+    },
+    "iam-policy-wildcards": {
+        "explanation": "A customer-managed policy that allows Action='*' on Resource='*' is functionally equivalent to AdministratorAccess but bypasses access reviews that filter on the well-known admin policy name. Auditors and access reviewers won't see it as 'admin' even though it is.",
+        "steps": [
+            "For each policy: review where it's attached, generate a scoped replacement from CloudTrail data via IAM Access Analyzer policy generation",
+            "Detach the wildcard policy",
+            "If the role genuinely needs full admin, use the built-in AdministratorAccess policy so access reviews can spot it",
+        ],
+        "effort": "moderate",
+    },
+    "iam-role-trust-external": {
+        "explanation": "The 'confused deputy' attack: a third-party SaaS holds an IAM role that can assume your role. If the SaaS is compromised, the attacker can pivot into your account. The fix is to require an ExternalId condition that the SaaS must include in their AssumeRole call.",
+        "steps": [
+            "Generate a random ExternalId (UUID is fine)",
+            "Share it with the third party out-of-band",
+            "Update the trust policy with Condition.StringEquals.sts:ExternalId",
+            "The third party must then include ExternalId in every AssumeRole call",
+        ],
+        "effort": "quick",
+    },
+    "iam-unused-roles": {
+        "explanation": "Stale roles accumulate permissions, become forgotten attack surface, and complicate access reviews. The right lifecycle is: create role → use it → if it stops being used, delete it.",
+        "steps": [
+            "For each stale role, search CloudTrail for AssumeRole events to confirm it's truly unused",
+            "Detach all attached policies",
+            "aws iam delete-role --role-name <name>",
+        ],
+        "effort": "moderate",
+    },
+    "cloudwatch-alarms-cis-4": {
+        "explanation": "CIS AWS 4.1-4.15 require real-time alerts on critical control-plane changes — root account use, IAM policy changes, CloudTrail config changes, KMS scheduled deletion, security group changes. Without these, security-relevant changes happen silently and only show up in retrospective audits.",
+        "steps": [
+            "Create an SNS topic with an email or PagerDuty subscriber",
+            "For each CIS 4.x event: create a metric filter on the CloudTrail log group with the prescribed pattern",
+            "For each metric filter: create a CloudWatch alarm with Period=300, Threshold=1, EvaluationPeriods=1, AlarmActions=[SNS topic]",
+            "Test by triggering one of the events in a sandbox account",
+        ],
+        "effort": "significant",
+    },
+    "aws-config-conformance-packs": {
+        "explanation": "Conformance packs bundle AWS Config rules into framework-aligned sets (CIS AWS Foundations, AWS FSBP, NIST 800-53, PCI DSS, HIPAA). Without one, you have no continuous compliance score against any external benchmark — just a list of unmapped rules.",
+        "steps": [
+            "Config console > Conformance packs > Deploy conformance pack",
+            "Choose 'Use sample template' and select 'Operational Best Practices for CIS AWS v3.0'",
+            "Review the compliance score in Config > Aggregators after the rules evaluate",
         ],
         "effort": "quick",
     },

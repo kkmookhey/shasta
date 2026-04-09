@@ -4,6 +4,70 @@ All notable changes to Shasta are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — AWS-to-Azure parity sweep (Stage 1 in flight)
+
+Stage 1 of an explicit parity sweep against the Azure scanner has landed.
+Stage 2 (CloudFront, Redshift/ElastiCache, Lambda Function URL auth, S3
+Object Ownership, etc.) is in flight in the same release branch.
+
+### Added — Stage 1 (AWS check_* 62 → 80)
+- New module `src/shasta/aws/compute.py` (9 checks): EC2 IMDSv2 enforcement
+  (Capital One breach vector), public IPv4 inventory, IAM instance profile
+  attached, AMI age (90-day default), EKS private endpoint, EKS audit
+  logging (api/audit/authenticator), EKS secrets envelope encryption with
+  KMS, ECS task privileged-mode detection, ECS task root-user detection.
+- New module `src/shasta/aws/kms.py` (4 checks): customer-managed CMK
+  rotation enabled, key policy wildcards (Principal=`*` + Action=`*` with
+  no Condition), keys in PendingDeletion state (CRITICAL — surfaces
+  destruction-in-progress), cross-account grants without SourceArn /
+  SourceAccount conditions.
+- `src/shasta/aws/iam.py` extensions (3 checks, GLOBAL — no region
+  iteration): customer-managed policy wildcards (`Action: "*"` on
+  `Resource: "*"`), role trust policies trusting external accounts
+  without an `sts:ExternalId` condition (the confused-deputy vector),
+  unused IAM roles (`>90` days since last use).
+- `src/shasta/aws/logging_checks.py` extensions (2 checks):
+  - `check_cloudwatch_alarms_cis_4_x` — covers CIS AWS 4.1–4.15
+    (15 events: unauthorized API, console-no-MFA, root use, IAM/CT/Config
+    changes, KMS deletion, S3/SG/NACL/route/VPC/Org changes). Anchored to
+    the multi-region CloudTrail's home region to avoid 14 false-FAIL
+    findings per multi-region account. Mirrors Azure's
+    `check_activity_log_alerts` (CIS 5.2.x) pattern.
+  - `check_aws_config_conformance_packs` — mirrors Azure's
+    `check_security_initiative_assigned`. Iterates regions; passes if any
+    enabled region has a conformance pack deployed.
+- 13 new `aws_*` Terraform remediation templates registered in `engine.py`,
+  each matched to an `EXPLANATIONS` entry: IMDSv2 enforcement, instance
+  profile, EKS private endpoint + audit logging + secrets encryption, ECS
+  task hardening (no privileged / no root), KMS rotation + key policy,
+  IAM policy wildcards + external-id trust, CIS 4.x metric filter+alarm,
+  AWS Config conformance pack.
+
+### Changed
+- `Finding` model already has `cis_aws_controls`; every new check above
+  populates it with the relevant CIS section (1.16, 1.18, 1.20, 3.8, 3.x,
+  4.1–4.15, 5.4.x, 5.6, 5.x).
+- `tests/test_aws/test_aws_sweep_smoke.py` gained a structural test
+  `test_runner_iterates_regions_unless_global` that fails the build if any
+  AWS runner is single-region without an explicit `IS_GLOBAL = True`
+  module-level marker. Closes the gap that Engineering Principle #3 was
+  written to prevent. The two genuinely-global modules
+  (`organizations.py`, IAM extensions) are explicitly opted out via the
+  `GLOBAL_AWS_MODULES` set or the `IS_GLOBAL` constant.
+- README updated: top-of-file "5 Domains, 129+ Checks" → "147+ Checks";
+  technical-controls row 129+ → 147+; remediation row 73 templates → 86
+  templates (55 AWS + 31 Azure).
+
+### Numbers after Stage 1
+- AWS check functions: **62 → 80** (+18)
+- AWS scanner modules: **12 → 14** (+ compute.py, + kms.py)
+- AWS Terraform templates: **42 → 55** (+13)
+- Total Shasta + Whitney check functions: **129 → 147**
+- Total Terraform templates: **73 → 86**
+- Total tests: **624 → 718** (new sweep tests + drift)
+
+---
+
 ## [1.5.0] — 2026-04-09
 
 This release closes the gap between the v1.0.0 baseline and a CIS-aligned

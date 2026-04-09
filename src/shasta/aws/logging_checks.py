@@ -118,8 +118,37 @@ def run_all_logging_checks(client: AWSClient) -> list[Finding]:
     findings.extend(check_iam_access_analyzer(client, account_id, region))
     findings.extend(check_guardduty(client, account_id, region))
     findings.extend(check_aws_config(client, account_id, region))
+    findings.extend(check_cloudwatch_alarms_cis_4_x(client, account_id, region))
+    findings.extend(check_aws_config_conformance_packs(client, account_id, region))
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS AWS v3.0 — CloudWatch alarms for security-relevant events (CIS 4.1-4.15)
+# ---------------------------------------------------------------------------
+
+# Each entry: (cis_id, label, keyword to grep for in metric filter pattern).
+# The check anchors to the home region of the multi-region CloudTrail and
+# verifies a metric filter + alarm pair exists for each event. Mirrors the
+# Azure check_activity_log_alerts (CIS 5.2.x) pattern.
+CLOUDWATCH_CIS_4_X_EVENTS = [
+    ("4.1", "Unauthorized API calls", "UnauthorizedOperation"),
+    ("4.2", "Console sign-in without MFA", "ConsoleLogin"),
+    ("4.3", "Root account use", "userIdentity.type"),
+    ("4.4", "IAM policy changes", "DeleteGroupPolicy"),
+    ("4.5", "CloudTrail config changes", "StopLogging"),
+    ("4.6", "Console authentication failures", "Failed authentication"),
+    ("4.7", "Disabling/scheduled deletion of CMKs", "ScheduleKeyDeletion"),
+    ("4.8", "S3 bucket policy changes", "PutBucketPolicy"),
+    ("4.9", "AWS Config configuration changes", "StopConfigurationRecorder"),
+    ("4.10", "Security group changes", "AuthorizeSecurityGroupIngress"),
+    ("4.11", "NACL changes", "CreateNetworkAclEntry"),
+    ("4.12", "Network gateway changes", "CreateCustomerGateway"),
+    ("4.13", "Route table changes", "CreateRoute"),
+    ("4.14", "VPC changes", "CreateVpc"),
+    ("4.15", "AWS Organizations changes", "AcceptHandshake"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -991,3 +1020,271 @@ def check_aws_config(client: AWSClient, account_id: str, region: str) -> list[Fi
         )
 
     return findings
+
+
+def _find_multi_region_trail_home_region(
+    client: AWSClient,
+) -> tuple[str | None, str | None, str | None]:
+    """Locate the multi-region CloudTrail and return (home_region, trail_name, log_group_name).
+
+    CIS 4.x allows the metric filters and alarms to live in one region as long
+    as that region's CloudTrail is multi-region. We anchor the check there.
+    Returns (None, None, None) if no suitable trail exists.
+    """
+    try:
+        ct = client.client("cloudtrail")
+        trails = ct.describe_trails().get("trailList", [])
+    except ClientError:
+        return None, None, None
+
+    def _log_group_name(arn: str) -> str | None:
+        if not arn:
+            return None
+        parts = arn.split(":log-group:")
+        if len(parts) != 2:
+            return None
+        return parts[1].rstrip(":*")
+
+    # Prefer a multi-region trail with CloudWatch Logs configured
+    for trail in trails:
+        if not trail.get("IsMultiRegionTrail"):
+            continue
+        log_group = _log_group_name(trail.get("CloudWatchLogsLogGroupArn", ""))
+        if log_group:
+            return trail.get("HomeRegion"), trail.get("Name"), log_group
+
+    # Fallback: any trail with CloudWatch Logs
+    for trail in trails:
+        log_group = _log_group_name(trail.get("CloudWatchLogsLogGroupArn", ""))
+        if log_group:
+            return trail.get("HomeRegion"), trail.get("Name"), log_group
+
+    return None, None, None
+
+
+def check_cloudwatch_alarms_cis_4_x(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS 4.1-4.15] CloudWatch metric filters + alarms for security-relevant API events.
+
+    The check anchors to the home region of the multi-region CloudTrail (the
+    region where the trail's log group lives). Iterating every region naively
+    would produce 14 false-FAIL findings per multi-region account because the
+    metric filters legitimately live in only one region.
+    """
+    home_region, trail_name, log_group_name = _find_multi_region_trail_home_region(client)
+    if not home_region or not log_group_name:
+        return [
+            Finding(
+                check_id="cloudwatch-alarms-cis-4",
+                title="Cannot evaluate CIS 4.1-4.15 alarms (no multi-region trail with CloudWatch Logs)",
+                description=(
+                    "CIS 4.1-4.15 require CloudWatch metric filters + alarms wired to a "
+                    "CloudTrail log group. No multi-region trail with a CloudWatchLogsLogGroupArn "
+                    "was found, so the check cannot anchor to a single region."
+                ),
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.MONITORING,
+                resource_type="AWS::CloudWatch::Alarm",
+                resource_id=f"arn:aws:cloudwatch:{region}:{account_id}:alarm/cis-4-x",
+                region=region,
+                account_id=account_id,
+                remediation=(
+                    "Create a multi-region CloudTrail with CloudWatch Logs delivery enabled, "
+                    "then re-run this check. The trail's home region becomes the anchor for "
+                    "all CIS 4.x alarms."
+                ),
+                soc2_controls=["CC7.1", "CC7.2"],
+                cis_aws_controls=["4.1", "4.2", "4.3"],
+            )
+        ]
+
+    try:
+        rc = client.for_region(home_region)
+        logs = rc.client("logs")
+        cw = rc.client("cloudwatch")
+        filters_resp = logs.describe_metric_filters(logGroupName=log_group_name)
+        metric_filters = filters_resp.get("metricFilters", [])
+        alarms_resp = cw.describe_alarms()
+        alarm_metric_names = {
+            a.get("MetricName") for a in alarms_resp.get("MetricAlarms", [])
+        }
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        return [
+            Finding(
+                check_id="cloudwatch-alarms-cis-4",
+                title=f"Cannot query CIS 4.x alarms in {home_region}: {code}",
+                description="Insufficient permission to read metric filters or alarms in the trail home region.",
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.NOT_ASSESSED,
+                domain=CheckDomain.MONITORING,
+                resource_type="AWS::CloudWatch::Alarm",
+                resource_id=f"arn:aws:cloudwatch:{home_region}:{account_id}:alarm/cis-4-x",
+                region=home_region,
+                account_id=account_id,
+                soc2_controls=["CC7.1", "CC7.2"],
+                cis_aws_controls=["4.1", "4.2"],
+            )
+        ]
+
+    covered: list[dict] = []
+    missing: list[dict] = []
+    for cis_id, label, keyword in CLOUDWATCH_CIS_4_X_EVENTS:
+        # Check that some filter on this log group contains the keyword AND
+        # has a metric transformation whose metricName has an alarm.
+        has_pair = False
+        for mf in metric_filters:
+            if keyword.lower() not in (mf.get("filterPattern") or "").lower():
+                continue
+            for mt in mf.get("metricTransformations", []) or []:
+                if mt.get("metricName") in alarm_metric_names:
+                    has_pair = True
+                    break
+            if has_pair:
+                break
+        entry = {"cis": cis_id, "label": label}
+        if has_pair:
+            covered.append(entry)
+        else:
+            missing.append(entry)
+
+    if not missing:
+        return [
+            Finding(
+                check_id="cloudwatch-alarms-cis-4",
+                title=f"All CIS 4.1-4.15 CloudWatch alarms configured in {home_region}",
+                description=(
+                    f"All {len(CLOUDWATCH_CIS_4_X_EVENTS)} CIS-required CloudWatch metric filters "
+                    f"+ alarms are present on log group '{log_group_name}' in {home_region}."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.MONITORING,
+                resource_type="AWS::CloudWatch::Alarm",
+                resource_id=f"arn:aws:cloudwatch:{home_region}:{account_id}:alarm/cis-4-x",
+                region=home_region,
+                account_id=account_id,
+                soc2_controls=["CC7.1", "CC7.2"],
+                cis_aws_controls=[c for c, _, _ in CLOUDWATCH_CIS_4_X_EVENTS],
+                details={
+                    "trail": trail_name,
+                    "log_group": log_group_name,
+                    "covered_count": len(covered),
+                },
+            )
+        ]
+    return [
+        Finding(
+            check_id="cloudwatch-alarms-cis-4",
+            title=f"{len(missing)} of {len(CLOUDWATCH_CIS_4_X_EVENTS)} CIS 4.x CloudWatch alarms missing",
+            description=(
+                f"{len(missing)} CIS-required CloudWatch alarms are not configured on the "
+                f"CloudTrail log group '{log_group_name}' in {home_region}. Without these, "
+                "security-relevant control-plane changes (root account use, IAM policy changes, "
+                "KMS scheduled deletion, security group changes) happen silently and only show "
+                "up in retrospective audits."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.MONITORING,
+            resource_type="AWS::CloudWatch::Alarm",
+            resource_id=f"arn:aws:cloudwatch:{home_region}:{account_id}:alarm/cis-4-x",
+            region=home_region,
+            account_id=account_id,
+            remediation=(
+                "Create a metric filter on the CloudTrail log group for each missing event "
+                '(e.g. {$.eventName="StopLogging"}), wire it to a CloudWatch alarm with '
+                "Period=300 / Threshold=1 / EvaluationPeriods=1, and route the alarm to an "
+                "SNS topic that pages on-call. The CIS AWS Foundations Benchmark v3.0 spec "
+                "lists the exact filter patterns for sections 4.1-4.15."
+            ),
+            soc2_controls=["CC7.1", "CC7.2"],
+            cis_aws_controls=sorted({m["cis"] for m in missing}),
+            details={
+                "trail": trail_name,
+                "log_group": log_group_name,
+                "missing": missing,
+                "covered": covered,
+            },
+        )
+    ]
+
+
+def check_aws_config_conformance_packs(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """At least one AWS Config conformance pack should be deployed.
+
+    Mirrors Azure's check_security_initiative_assigned. Conformance packs are
+    bundled Config rules - equivalent to Azure built-in Policy initiatives. CIS
+    AWS Foundations Benchmark, AWS FSBP, NIST 800-53, PCI DSS, and HIPAA all
+    ship as conformance packs. Iterates regions because conformance packs are
+    regional resources.
+    """
+    try:
+        regions = client.get_enabled_regions()
+    except ClientError:
+        regions = [region]
+
+    region_status: dict[str, list[str]] = {}
+    for r in regions:
+        try:
+            config = client.for_region(r).client("config")
+            packs = config.describe_conformance_packs().get("ConformancePackDetails", [])
+            region_status[r] = [p.get("ConformancePackName", "") for p in packs]
+        except ClientError:
+            continue
+
+    enabled_regions = {r: names for r, names in region_status.items() if names}
+    if enabled_regions:
+        all_packs = sorted({n for names in enabled_regions.values() for n in names})
+        return [
+            Finding(
+                check_id="aws-config-conformance-packs",
+                title=f"AWS Config conformance packs deployed in {len(enabled_regions)} region(s)",
+                description=(
+                    f"Conformance packs found: {', '.join(all_packs[:5])}. "
+                    "Continuous compliance evaluation against the bundled rule sets is in place."
+                ),
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.MONITORING,
+                resource_type="AWS::Config::ConformancePack",
+                resource_id=f"arn:aws:config:{region}:{account_id}:conformance-pack/*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC2.1", "CC4.1"],
+                cis_aws_controls=["2.x"],
+                details={"by_region": enabled_regions},
+            )
+        ]
+
+    return [
+        Finding(
+            check_id="aws-config-conformance-packs",
+            title="No AWS Config conformance packs deployed",
+            description=(
+                "No conformance pack found in any enabled region. Conformance packs bundle "
+                "AWS Config rules into framework-aligned sets (CIS AWS Foundations, AWS FSBP, "
+                "NIST 800-53, PCI DSS, HIPAA). Without one, you have no continuous compliance "
+                "score against any external benchmark."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.MONITORING,
+            resource_type="AWS::Config::ConformancePack",
+            resource_id=f"arn:aws:config:{region}:{account_id}:conformance-pack/*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "Deploy the 'Operational-Best-Practices-for-CIS-AWS-v3.0' conformance pack "
+                "via Config console > Conformance packs > Deploy conformance pack. AWS provides "
+                "the YAML template; deployment is one click and free for the rules themselves "
+                "(you pay only for the underlying Config rule evaluations)."
+            ),
+            soc2_controls=["CC2.1", "CC4.1"],
+            cis_aws_controls=["2.x"],
+        )
+    ]

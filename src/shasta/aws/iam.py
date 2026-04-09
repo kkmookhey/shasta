@@ -40,8 +40,18 @@ def run_all_iam_checks(client: AWSClient) -> list[Finding]:
     findings.extend(check_inactive_users(iam, account_id, region))
     findings.extend(check_user_direct_policies(iam, account_id, region))
     findings.extend(check_overprivileged_users(iam, account_id, region))
+    findings.extend(check_iam_policy_wildcards(iam, account_id, region))
+    findings.extend(check_iam_role_trust_external_account(iam, account_id, region))
+    findings.extend(check_iam_unused_roles(iam, account_id, region))
 
     return findings
+
+
+# IAM is a global service — these new checks below do NOT iterate regions.
+# The existing run_all_iam_checks() above is called once with the original
+# client (the scanner.py wiring already treats IAM as a global domain).
+
+UNUSED_ROLE_DAYS_THRESHOLD = 90
 
 
 def check_password_policy(iam: Any, account_id: str, region: str) -> list[Finding]:
@@ -674,3 +684,354 @@ def _parse_credential_report(iam: Any) -> list[dict]:
     content = response["Content"].decode("utf-8")
     reader = csv.DictReader(io.StringIO(content))
     return list(reader)
+
+
+# ---------------------------------------------------------------------------
+# CIS AWS v3.0 IAM checks (Stage 1 of the AWS parity sweep)
+# ---------------------------------------------------------------------------
+
+
+def check_iam_policy_wildcards(
+    iam: Any, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS 1.16] Customer-managed IAM policies should not grant Action='*' on Resource='*'.
+
+    Mirrors Azure's check_custom_role_wildcards. A customer-managed policy
+    that allows Action='*' on Resource='*' is functionally equivalent to
+    AdministratorAccess but easier to miss in access reviews because it
+    doesn't carry the well-known name.
+    """
+    import json as _json
+
+    try:
+        paginator = iam.get_paginator("list_policies")
+        custom_policies = []
+        for page in paginator.paginate(Scope="Local", OnlyAttached=False):
+            custom_policies.extend(page.get("Policies", []))
+    except Exception:
+        return []
+
+    if not custom_policies:
+        return []
+
+    offenders: list[dict] = []
+    reviewed = 0
+    for policy in custom_policies:
+        arn = policy.get("Arn")
+        version_id = policy.get("DefaultVersionId")
+        if not arn or not version_id:
+            continue
+        try:
+            version = iam.get_policy_version(PolicyArn=arn, VersionId=version_id)
+            doc = version.get("PolicyVersion", {}).get("Document")
+        except Exception:
+            continue
+        if isinstance(doc, str):
+            try:
+                doc = _json.loads(doc)
+            except _json.JSONDecodeError:
+                continue
+        if not isinstance(doc, dict):
+            continue
+        reviewed += 1
+
+        statements = doc.get("Statement", [])
+        if isinstance(statements, dict):
+            statements = [statements]
+
+        for stmt in statements:
+            if stmt.get("Effect") != "Allow":
+                continue
+            actions = stmt.get("Action", [])
+            if isinstance(actions, str):
+                actions = [actions]
+            resources = stmt.get("Resource", [])
+            if isinstance(resources, str):
+                resources = [resources]
+            if "*" in actions and ("*" in resources or not resources):
+                offenders.append(
+                    {
+                        "policy_name": policy.get("PolicyName"),
+                        "arn": arn,
+                        "attachment_count": policy.get("AttachmentCount", 0),
+                    }
+                )
+                break
+
+    if not offenders:
+        return [
+            Finding(
+                check_id="iam-policy-wildcards",
+                title=f"All {reviewed} customer-managed IAM policies are scoped",
+                description="No customer-managed policy grants Action='*' on Resource='*'.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="AWS::IAM::ManagedPolicy",
+                resource_id=f"arn:aws:iam::{account_id}:policy/*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.1", "CC6.2"],
+                cis_aws_controls=["1.16"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="iam-policy-wildcards",
+            title=f"{len(offenders)} customer-managed IAM policy(ies) grant wildcard Action+Resource",
+            description=(
+                f"{len(offenders)} customer-managed policy(ies) allow Action='*' on Resource='*'. "
+                "These are functionally equivalent to AdministratorAccess but bypass access "
+                "reviews that filter on the well-known admin policy name. Identify which "
+                "principals these policies are attached to (the attachment_count field shows "
+                "how many users/roles/groups have them) and replace with scoped policies that "
+                "list only the actions actually used."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="AWS::IAM::ManagedPolicy",
+            resource_id=f"arn:aws:iam::{account_id}:policy/*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "For each policy: review where it's attached, generate a scoped replacement "
+                "from CloudTrail data via IAM Access Analyzer policy generation, then detach "
+                "the wildcard policy. If the role genuinely needs full admin, use the built-in "
+                "AdministratorAccess policy so access reviews can spot it."
+            ),
+            soc2_controls=["CC6.1", "CC6.2"],
+            cis_aws_controls=["1.16"],
+            details={"wildcard_policies": offenders[:20]},
+        )
+    ]
+
+
+def check_iam_role_trust_external_account(
+    iam: Any, account_id: str, region: str
+) -> list[Finding]:
+    """IAM roles trusting external AWS accounts should require an ExternalId condition.
+
+    The "confused deputy" attack: a third-party SaaS holds an IAM role that
+    can assume your role. If the SaaS is compromised, the attacker can pivot
+    into your account. The fix is to require an ExternalId condition that the
+    SaaS must include in their AssumeRole call - guessing the ExternalId is
+    cryptographically infeasible.
+    """
+    import json as _json
+
+    try:
+        paginator = iam.get_paginator("list_roles")
+        roles = []
+        for page in paginator.paginate():
+            roles.extend(page.get("Roles", []))
+    except Exception:
+        return []
+
+    if not roles:
+        return []
+
+    offenders: list[dict] = []
+    own_account_principal = f"arn:aws:iam::{account_id}:"
+    for role in roles:
+        path = role.get("Path", "/")
+        if path.startswith("/aws-service-role/") or path.startswith("/service-role/"):
+            continue
+        doc = role.get("AssumeRolePolicyDocument")
+        if isinstance(doc, str):
+            try:
+                doc = _json.loads(doc)
+            except _json.JSONDecodeError:
+                continue
+        if not isinstance(doc, dict):
+            continue
+
+        for stmt in doc.get("Statement", []):
+            if stmt.get("Effect") != "Allow":
+                continue
+            actions = stmt.get("Action", [])
+            if isinstance(actions, str):
+                actions = [actions]
+            if not any(a in ("sts:AssumeRole", "sts:*") for a in actions):
+                continue
+            principal = stmt.get("Principal", {})
+            aws_principals = principal.get("AWS", []) if isinstance(principal, dict) else []
+            if isinstance(aws_principals, str):
+                aws_principals = [aws_principals]
+            external = [
+                p
+                for p in aws_principals
+                if isinstance(p, str) and not p.startswith(own_account_principal) and p != "*"
+            ]
+            if not external:
+                continue
+            cond = stmt.get("Condition", {}) or {}
+            has_external_id = (
+                "StringEquals" in cond
+                and "sts:ExternalId" in cond.get("StringEquals", {})
+            ) or (
+                "StringLike" in cond
+                and "sts:ExternalId" in cond.get("StringLike", {})
+            )
+            if not has_external_id:
+                offenders.append(
+                    {
+                        "role_name": role.get("RoleName"),
+                        "arn": role.get("Arn"),
+                        "external_principals": external,
+                    }
+                )
+                break
+
+    if not offenders:
+        return [
+            Finding(
+                check_id="iam-role-trust-external",
+                title="All cross-account IAM roles use ExternalId conditions",
+                description="Every role trusting an external AWS account carries an sts:ExternalId condition.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="AWS::IAM::Role",
+                resource_id=f"arn:aws:iam::{account_id}:role/*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.1", "CC6.2"],
+                cis_aws_controls=["1.x"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="iam-role-trust-external",
+            title=f"{len(offenders)} IAM role(s) trust external accounts without ExternalId",
+            description=(
+                f"{len(offenders)} role(s) allow sts:AssumeRole from a foreign AWS account "
+                "without an sts:ExternalId condition. This is the 'confused deputy' attack "
+                "vector - if the foreign account is ever compromised, the attacker can assume "
+                "your role with no second factor. The ExternalId is a shared secret that the "
+                "foreign caller must include in every AssumeRole call."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="AWS::IAM::Role",
+            resource_id=f"arn:aws:iam::{account_id}:role/*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "For each role, generate a random ExternalId (UUID is fine), share it with "
+                "the third party out-of-band, and update the trust policy with: "
+                'Condition: {StringEquals: {sts:ExternalId: "your-external-id"}}. '
+                "The third party must then include ExternalId in every AssumeRole call."
+            ),
+            soc2_controls=["CC6.1", "CC6.2"],
+            cis_aws_controls=["1.x"],
+            details={"roles_without_external_id": offenders[:20]},
+        )
+    ]
+
+
+# Threshold for flagging unused IAM roles (matches inactive user threshold)
+UNUSED_ROLE_DAYS_THRESHOLD = 90
+
+
+def check_iam_unused_roles(
+    iam: Any, account_id: str, region: str
+) -> list[Finding]:
+    """IAM roles with no LastUsedDate (or LastUsedDate >90 days) are stale.
+
+    Mirrors check_inactive_users but for roles. Stale roles accumulate
+    permissions and become forgotten attack surface. AWS surfaces
+    LastUsedDate via get_role for every role.
+    """
+    try:
+        paginator = iam.get_paginator("list_roles")
+        roles = []
+        for page in paginator.paginate():
+            roles.extend(page.get("Roles", []))
+    except Exception:
+        return []
+
+    if not roles:
+        return []
+
+    threshold = datetime.now(timezone.utc) - timedelta(days=UNUSED_ROLE_DAYS_THRESHOLD)
+    stale: list[dict] = []
+    for role in roles:
+        path = role.get("Path", "/")
+        if path.startswith("/aws-service-role/") or path.startswith("/service-role/"):
+            continue
+        try:
+            detail = iam.get_role(RoleName=role.get("RoleName")).get("Role", {})
+        except Exception:
+            continue
+        last_used_info = detail.get("RoleLastUsed", {}) or {}
+        last_used = last_used_info.get("LastUsedDate")
+        created = role.get("CreateDate")
+        if created and (datetime.now(timezone.utc) - created).days < UNUSED_ROLE_DAYS_THRESHOLD:
+            continue
+        if last_used is None:
+            stale.append(
+                {
+                    "role_name": role.get("RoleName"),
+                    "arn": role.get("Arn"),
+                    "created": str(created),
+                    "last_used": "never",
+                }
+            )
+        elif last_used < threshold:
+            days_ago = (datetime.now(timezone.utc) - last_used).days
+            stale.append(
+                {
+                    "role_name": role.get("RoleName"),
+                    "arn": role.get("Arn"),
+                    "last_used": str(last_used),
+                    "days_since_use": days_ago,
+                }
+            )
+
+    if not stale:
+        return [
+            Finding(
+                check_id="iam-unused-roles",
+                title=f"No stale IAM roles (all used within {UNUSED_ROLE_DAYS_THRESHOLD} days)",
+                description=f"All {len(roles)} customer-managed roles have been used recently.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="AWS::IAM::Role",
+                resource_id=f"arn:aws:iam::{account_id}:role/*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.2", "CC6.3"],
+                cis_aws_controls=["1.x"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="iam-unused-roles",
+            title=f"{len(stale)} IAM role(s) unused for >{UNUSED_ROLE_DAYS_THRESHOLD} days",
+            description=(
+                f"{len(stale)} role(s) have either never been used or were last used more than "
+                f"{UNUSED_ROLE_DAYS_THRESHOLD} days ago. Stale roles accumulate permissions, "
+                "become forgotten attack surface, and complicate access reviews. The right "
+                "lifecycle is: create role > use it > if it stops being used, delete it."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="AWS::IAM::Role",
+            resource_id=f"arn:aws:iam::{account_id}:role/*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "Review each stale role: confirm it's truly unused (search CloudTrail for "
+                "AssumeRole events), then run `aws iam delete-role --role-name <name>` after "
+                "detaching its policies. For roles used by automation but rarely, document "
+                "the expected cadence so they don't get flagged again."
+            ),
+            soc2_controls=["CC6.2", "CC6.3"],
+            cis_aws_controls=["1.x"],
+            details={"stale_roles": stale[:20]},
+        )
+    ]

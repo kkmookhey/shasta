@@ -173,6 +173,23 @@ def _run_aws_extras(client: Any, domains: list[CheckDomain]) -> list[Finding]:
         except Exception:
             pass
 
+    # Stage 1 of the AWS-to-Azure parity sweep: compute and KMS modules
+    if CheckDomain.COMPUTE in domains:
+        try:
+            from shasta.aws.compute import run_all_aws_compute_checks
+
+            extras.extend(run_all_aws_compute_checks(client))
+        except Exception:
+            pass
+
+    if CheckDomain.ENCRYPTION in domains:
+        try:
+            from shasta.aws.kms import run_all_aws_kms_checks
+
+            extras.extend(run_all_aws_kms_checks(client))
+        except Exception:
+            pass
+
     if CheckDomain.MONITORING in domains:
         try:
             from shasta.aws.backup import run_all_aws_backup_checks

@@ -104,9 +104,20 @@ def policy_template_count() -> int:
 
 
 def pytest_collected_count() -> int:
-    """Run pytest --collect-only and return the number of tests discovered."""
+    """Run pytest --collect-only and return the number of tests discovered.
+
+    Excludes tests/test_rainier (untracked sibling project, not part of
+    Shasta or Whitney) so the local and CI counts agree.
+    """
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "--ignore=tests/test_rainier",
+        ],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,

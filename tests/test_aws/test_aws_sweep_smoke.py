@@ -28,6 +28,8 @@ NEW_AWS_MODULES = [
     "shasta.aws.vpc_endpoints",
     "shasta.aws.cloudwatch_logs",
     "shasta.aws.organizations",
+    "shasta.aws.compute",
+    "shasta.aws.kms",
 ]
 
 EXPECTED_RUNNERS = {
@@ -37,6 +39,17 @@ EXPECTED_RUNNERS = {
     "shasta.aws.vpc_endpoints": "run_all_aws_vpc_endpoint_checks",
     "shasta.aws.cloudwatch_logs": "run_all_aws_cloudwatch_log_checks",
     "shasta.aws.organizations": "run_all_aws_organizations_checks",
+    "shasta.aws.compute": "run_all_aws_compute_checks",
+    "shasta.aws.kms": "run_all_aws_kms_checks",
+}
+
+# Modules that are intentionally GLOBAL — no per-region iteration. The
+# multi-region structural smoke test below skips these. AWS Organizations is
+# global; IAM is also global but lives in src/shasta/aws/iam.py which has
+# many existing checks and is wired through the main scanner path, not
+# _run_aws_extras.
+GLOBAL_AWS_MODULES = {
+    "shasta.aws.organizations",
 }
 
 
@@ -53,6 +66,32 @@ def test_runner_exists_and_takes_client(mod_name: str, runner_name: str) -> None
     params = list(sig.parameters)
     assert params, f"{runner_name} should accept at least one positional argument (client)"
     assert params[0] == "client"
+
+
+@pytest.mark.parametrize("mod_name,runner_name", list(EXPECTED_RUNNERS.items()))
+def test_runner_iterates_regions_unless_global(mod_name: str, runner_name: str) -> None:
+    """Engineering Principle #3: every regional runner must iterate enabled regions.
+
+    Skips modules in GLOBAL_AWS_MODULES (organizations, IAM, CloudFront) and
+    modules with module-level IS_GLOBAL = True. The check inspects the
+    runner's source for client.get_enabled_regions() + client.for_region(.
+    """
+    if mod_name in GLOBAL_AWS_MODULES:
+        return
+    mod = importlib.import_module(mod_name)
+    if getattr(mod, "IS_GLOBAL", False):
+        return
+    runner = getattr(mod, runner_name)
+    src = inspect.getsource(runner)
+    assert "get_enabled_regions" in src, (
+        f"{runner_name} must call client.get_enabled_regions() — see Engineering Principle #3 "
+        f"in ENGINEERING_PRINCIPLES.md. If this module is intentionally global, set "
+        f"IS_GLOBAL = True at the module level."
+    )
+    assert "for_region" in src, (
+        f"{runner_name} must use client.for_region(r) inside the loop — see Engineering "
+        f"Principle #3 in ENGINEERING_PRINCIPLES.md."
+    )
 
 
 def test_finding_model_has_cis_aws_field() -> None:
@@ -93,10 +132,34 @@ def test_aws_terraform_templates_registered() -> None:
     from shasta.remediation.engine import EXPLANATIONS, TERRAFORM_TEMPLATES
 
     aws_tf = [k for k in TERRAFORM_TEMPLATES if not k.startswith("azure-")]
-    assert len(aws_tf) >= 30, f"Expected ≥30 AWS Terraform templates, found {len(aws_tf)}"
+    # After Stage 1 of the parity sweep, we expect at least 50 AWS templates
+    assert len(aws_tf) >= 50, f"Expected >=50 AWS Terraform templates, found {len(aws_tf)}"
 
     missing_exp = [k for k in aws_tf if k not in EXPLANATIONS]
     assert not missing_exp, f"AWS TF templates missing EXPLANATIONS: {missing_exp}"
+
+
+def test_compute_module_constants_exist() -> None:
+    """compute.py should expose module-level constants for the audit + smoke tests."""
+    from shasta.aws.compute import AMI_AGE_DAYS_THRESHOLD, IS_GLOBAL
+
+    assert IS_GLOBAL is False
+    assert AMI_AGE_DAYS_THRESHOLD >= 30
+
+
+def test_kms_module_is_regional() -> None:
+    from shasta.aws.kms import IS_GLOBAL
+
+    assert IS_GLOBAL is False
+
+
+def test_cloudwatch_cis_4_x_table_complete() -> None:
+    """The CIS 4.x event table should cover sections 4.1 through 4.15."""
+    from shasta.aws.logging_checks import CLOUDWATCH_CIS_4_X_EVENTS
+
+    cis_ids = {entry[0] for entry in CLOUDWATCH_CIS_4_X_EVENTS}
+    for section in [f"4.{i}" for i in range(1, 16)]:
+        assert section in cis_ids, f"CIS {section} missing from CLOUDWATCH_CIS_4_X_EVENTS"
 
 
 @pytest.mark.parametrize(
@@ -125,6 +188,20 @@ def test_aws_terraform_templates_registered() -> None:
         "aws-vpc-endpoints",
         "cwl-kms-encryption",
         "aws-org-scps",
+        # Stage 1 of the parity sweep
+        "ec2-imdsv2-enforced",
+        "ec2-instance-profile",
+        "eks-private-endpoint",
+        "eks-audit-logging",
+        "eks-secrets-encryption",
+        "ecs-task-privileged",
+        "ecs-task-root-user",
+        "kms-key-rotation",
+        "kms-key-policy-wildcards",
+        "iam-policy-wildcards",
+        "iam-role-trust-external",
+        "cloudwatch-alarms-cis-4",
+        "aws-config-conformance-packs",
     ],
 )
 def test_aws_terraform_template_renders(check_id: str) -> None:

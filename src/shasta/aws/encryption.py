@@ -37,10 +37,358 @@ def run_all_encryption_checks(client: AWSClient) -> list[Finding]:
             findings.extend(check_rds_encryption(rc, account_id, r))
             findings.extend(check_rds_public_access(rc, account_id, r))
             findings.extend(check_rds_backups(rc, account_id, r))
+            findings.extend(check_efs_encryption(rc, account_id, r))
+            findings.extend(check_sns_topic_encryption(rc, account_id, r))
+            findings.extend(check_sqs_queue_encryption(rc, account_id, r))
+            findings.extend(check_secrets_manager_rotation(rc, account_id, r))
+            findings.extend(check_acm_expiring_certificates(rc, account_id, r))
         except ClientError:
             continue
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS AWS v3.0 Stage 1 — EFS, SNS, SQS, Secrets Manager, ACM
+# ---------------------------------------------------------------------------
+
+
+def check_efs_encryption(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS 2.4] EFS file systems must be encrypted at rest."""
+    findings: list[Finding] = []
+    try:
+        efs = client.client("efs")
+        fs_list = efs.describe_file_systems().get("FileSystems", [])
+    except ClientError:
+        return []
+
+    for fs in fs_list:
+        fs_id = fs.get("FileSystemId", "unknown")
+        encrypted = bool(fs.get("Encrypted", False))
+        arn = f"arn:aws:elasticfilesystem:{region}:{account_id}:file-system/{fs_id}"
+        if encrypted:
+            findings.append(
+                Finding(
+                    check_id="efs-encryption",
+                    title=f"EFS file system '{fs_id}' is encrypted",
+                    description=f"KMS key: {fs.get('KmsKeyId', 'aws-managed')}.",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.ENCRYPTION,
+                    resource_type="AWS::EFS::FileSystem",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC6.7"],
+                    cis_aws_controls=["2.4"],
+                    details={"file_system_id": fs_id, "kms_key_id": fs.get("KmsKeyId")},
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="efs-encryption",
+                    title=f"EFS file system '{fs_id}' is NOT encrypted",
+                    description=(
+                        "EFS encryption can only be enabled at creation. An unencrypted file "
+                        "system means data is stored in clear on Amazon's disks."
+                    ),
+                    severity=Severity.HIGH,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.ENCRYPTION,
+                    resource_type="AWS::EFS::FileSystem",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        "Create a new encrypted EFS file system, replicate the data via "
+                        "AWS DataSync, then cut over and delete the old one."
+                    ),
+                    soc2_controls=["CC6.7"],
+                    cis_aws_controls=["2.4"],
+                    details={"file_system_id": fs_id},
+                )
+            )
+
+    return findings
+
+
+def check_sns_topic_encryption(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS] SNS topics should be encrypted at rest with KMS."""
+    findings: list[Finding] = []
+    try:
+        sns = client.client("sns")
+        paginator = sns.get_paginator("list_topics")
+        topics: list[str] = []
+        for page in paginator.paginate():
+            topics.extend(t["TopicArn"] for t in page.get("Topics", []))
+    except ClientError:
+        return []
+
+    encrypted = 0
+    unencrypted: list[str] = []
+    for arn in topics:
+        try:
+            attrs = sns.get_topic_attributes(TopicArn=arn).get("Attributes", {})
+            if attrs.get("KmsMasterKeyId"):
+                encrypted += 1
+            else:
+                unencrypted.append(arn)
+        except ClientError:
+            continue
+
+    if not topics:
+        return []
+
+    if not unencrypted:
+        return [
+            Finding(
+                check_id="sns-encryption",
+                title=f"All {encrypted} SNS topic(s) encrypted with KMS",
+                description="Every SNS topic has a KmsMasterKeyId set.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.ENCRYPTION,
+                resource_type="AWS::SNS::Topic",
+                resource_id=f"arn:aws:sns:{region}:{account_id}:*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.7"],
+                cis_aws_controls=["2.5"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="sns-encryption",
+            title=f"{len(unencrypted)} SNS topic(s) without KMS encryption",
+            description=(
+                f"{len(unencrypted)} of {len(topics)} SNS topics have no KmsMasterKeyId. "
+                "Messages in flight may carry sensitive data and at-rest queue contents are "
+                "stored unencrypted."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.ENCRYPTION,
+            resource_type="AWS::SNS::Topic",
+            resource_id=f"arn:aws:sns:{region}:{account_id}:*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "aws sns set-topic-attributes --topic-arn <arn> "
+                "--attribute-name KmsMasterKeyId --attribute-value alias/aws/sns"
+            ),
+            soc2_controls=["CC6.7"],
+            cis_aws_controls=["2.5"],
+            details={"unencrypted_topics": unencrypted[:20], "total": len(topics)},
+        )
+    ]
+
+
+def check_sqs_queue_encryption(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS] SQS queues should be encrypted at rest with KMS or SSE."""
+    findings: list[Finding] = []
+    try:
+        sqs = client.client("sqs")
+        queues = sqs.list_queues().get("QueueUrls", [])
+    except ClientError:
+        return []
+
+    encrypted = 0
+    unencrypted: list[str] = []
+    for q in queues:
+        try:
+            attrs = sqs.get_queue_attributes(QueueUrl=q, AttributeNames=["All"]).get(
+                "Attributes", {}
+            )
+            if attrs.get("KmsMasterKeyId") or attrs.get("SqsManagedSseEnabled") == "true":
+                encrypted += 1
+            else:
+                unencrypted.append(q)
+        except ClientError:
+            continue
+
+    if not queues:
+        return []
+
+    if not unencrypted:
+        return [
+            Finding(
+                check_id="sqs-encryption",
+                title=f"All {encrypted} SQS queue(s) encrypted",
+                description="Every queue uses KMS or SQS-managed SSE.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.ENCRYPTION,
+                resource_type="AWS::SQS::Queue",
+                resource_id=f"arn:aws:sqs:{region}:{account_id}:*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.7"],
+                cis_aws_controls=["2.6"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="sqs-encryption",
+            title=f"{len(unencrypted)} SQS queue(s) without encryption at rest",
+            description=(
+                f"{len(unencrypted)} of {len(queues)} queues have neither KMS nor SQS-managed SSE."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.ENCRYPTION,
+            resource_type="AWS::SQS::Queue",
+            resource_id=f"arn:aws:sqs:{region}:{account_id}:*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "aws sqs set-queue-attributes --queue-url <url> "
+                "--attributes SqsManagedSseEnabled=true"
+            ),
+            soc2_controls=["CC6.7"],
+            cis_aws_controls=["2.6"],
+            details={"unencrypted_queues": unencrypted[:20]},
+        )
+    ]
+
+
+def check_secrets_manager_rotation(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS] Secrets Manager secrets should have automatic rotation enabled."""
+    findings: list[Finding] = []
+    try:
+        sm = client.client("secretsmanager")
+        paginator = sm.get_paginator("list_secrets")
+        secrets = []
+        for page in paginator.paginate():
+            secrets.extend(page.get("SecretList", []))
+    except ClientError:
+        return []
+
+    if not secrets:
+        return []
+
+    no_rotation = [s for s in secrets if not s.get("RotationEnabled")]
+    if not no_rotation:
+        return [
+            Finding(
+                check_id="secrets-manager-rotation",
+                title=f"All {len(secrets)} secret(s) have rotation enabled",
+                description="Every Secrets Manager secret has automatic rotation configured.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.ENCRYPTION,
+                resource_type="AWS::SecretsManager::Secret",
+                resource_id=f"arn:aws:secretsmanager:{region}:{account_id}:secret/*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.1", "CC6.7"],
+                cis_aws_controls=["1.10"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="secrets-manager-rotation",
+            title=f"{len(no_rotation)} of {len(secrets)} secret(s) lack automatic rotation",
+            description=(
+                "Secrets without automatic rotation accumulate risk — credentials cycle outside "
+                "any policy and stale secrets persist after staff turnover."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.ENCRYPTION,
+            resource_type="AWS::SecretsManager::Secret",
+            resource_id=f"arn:aws:secretsmanager:{region}:{account_id}:secret/*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "For each secret, attach a Lambda rotation function and enable rotation "
+                "with a 30-90 day schedule. AWS provides templates for common backends."
+            ),
+            soc2_controls=["CC6.1", "CC6.7"],
+            cis_aws_controls=["1.10"],
+            details={
+                "secrets_without_rotation": [s.get("Name") for s in no_rotation[:20]],
+                "total": len(secrets),
+            },
+        )
+    ]
+
+
+def check_acm_expiring_certificates(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS] ACM certificates expiring within 30 days should be flagged."""
+    from datetime import datetime, timedelta, timezone
+
+    findings: list[Finding] = []
+    try:
+        acm = client.client("acm")
+        paginator = acm.get_paginator("list_certificates")
+        certs = []
+        for page in paginator.paginate():
+            certs.extend(page.get("CertificateSummaryList", []))
+    except ClientError:
+        return []
+
+    if not certs:
+        return []
+
+    threshold = datetime.now(timezone.utc) + timedelta(days=30)
+    expiring: list[dict] = []
+    for c in certs:
+        not_after = c.get("NotAfter")
+        if not_after and not_after < threshold:
+            expiring.append(
+                {
+                    "arn": c.get("CertificateArn"),
+                    "domain": c.get("DomainName"),
+                    "expires": not_after.isoformat() if not_after else None,
+                }
+            )
+
+    if not expiring:
+        return [
+            Finding(
+                check_id="acm-expiring-certs",
+                title=f"All {len(certs)} ACM cert(s) valid for >30 days",
+                description="No certificates expiring within the next 30 days.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.ENCRYPTION,
+                resource_type="AWS::CertificateManager::Certificate",
+                resource_id=f"arn:aws:acm:{region}:{account_id}:certificate/*",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.1", "CC6.7"],
+                cis_aws_controls=["2.x"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="acm-expiring-certs",
+            title=f"{len(expiring)} ACM cert(s) expiring within 30 days",
+            description=(
+                "Expired certificates break TLS for whatever they're attached to (CloudFront, "
+                "ALB, API Gateway). Set up renewal alarms or use ACM auto-renewal."
+            ),
+            severity=Severity.HIGH,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.ENCRYPTION,
+            resource_type="AWS::CertificateManager::Certificate",
+            resource_id=f"arn:aws:acm:{region}:{account_id}:certificate/*",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "ACM auto-renews public DNS-validated certs ~60 days before expiry. For "
+                "imported certs, replace them. For email-validated certs, switch to DNS validation."
+            ),
+            soc2_controls=["CC6.1", "CC6.7"],
+            cis_aws_controls=["2.x"],
+            details={"expiring": expiring[:20]},
+        )
+    ]
 
 
 def check_ebs_encryption_default(

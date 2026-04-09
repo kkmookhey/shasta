@@ -302,6 +302,674 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "{safe}" {{
 
 
 # ---------------------------------------------------------------------------
+# AWS — Stage 1/2/3 CIS AWS v3.0 sweep templates
+# ---------------------------------------------------------------------------
+
+
+def _aws_safe(name: str) -> str:
+    """Sanitize an AWS resource name for use as a Terraform identifier."""
+    return (name or "RESOURCE").replace("-", "_").replace(".", "_").replace("/", "_")
+
+
+# ----- CloudTrail -----
+
+
+@_tf("cloudtrail-kms-encryption")
+def _tf_aws_ct_kms(f: Finding) -> str:
+    name = f.details.get("trail", "main")
+    return f'''\
+resource "aws_kms_key" "cloudtrail" {{
+  description             = "CloudTrail log encryption"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({{
+    Version = "2012-10-17"
+    Statement = [
+      {{
+        Sid    = "AllowCloudTrail"
+        Effect = "Allow"
+        Principal = {{ Service = "cloudtrail.amazonaws.com" }}
+        Action = ["kms:GenerateDataKey*", "kms:Decrypt"]
+        Resource = "*"
+      }},
+      {{
+        Sid    = "AllowAccountFullAccess"
+        Effect = "Allow"
+        Principal = {{ AWS = "arn:aws:iam::ACCOUNT_ID:root" }}
+        Action = "kms:*"
+        Resource = "*"
+      }}
+    ]
+  }})
+}}
+
+resource "aws_cloudtrail" "{_aws_safe(name)}" {{
+  name           = "{name}"
+  # ... existing config ...
+  kms_key_id     = aws_kms_key.cloudtrail.arn
+}}'''
+
+
+@_tf("cloudtrail-log-validation")
+def _tf_aws_ct_validation(f: Finding) -> str:
+    name = f.details.get("trail", "main")
+    return f'''\
+resource "aws_cloudtrail" "{_aws_safe(name)}" {{
+  name = "{name}"
+  # ... existing config ...
+
+  enable_log_file_validation = true  # CIS AWS 3.2
+}}'''
+
+
+@_tf("cloudtrail-s3-object-lock")
+def _tf_aws_ct_object_lock(f: Finding) -> str:
+    bucket = f.details.get("bucket", "cloudtrail-logs")
+    safe = _aws_safe(bucket)
+    return f'''\
+# Object Lock can only be enabled at bucket creation. Migrate logs to a new
+# bucket created with object_lock_enabled = true, then update the trail.
+
+resource "aws_s3_bucket" "{safe}_v2" {{
+  bucket              = "{bucket}-v2"
+  object_lock_enabled = true
+}}
+
+resource "aws_s3_bucket_object_lock_configuration" "{safe}_v2" {{
+  bucket = aws_s3_bucket.{safe}_v2.id
+
+  rule {{
+    default_retention {{
+      mode = "COMPLIANCE"
+      days = 365
+    }}
+  }}
+}}
+
+resource "aws_s3_bucket_versioning" "{safe}_v2" {{
+  bucket = aws_s3_bucket.{safe}_v2.id
+  versioning_configuration {{
+    status = "Enabled"
+  }}
+}}'''
+
+
+@_tf("security-hub-enabled")
+def _tf_aws_security_hub(f: Finding) -> str:
+    return '''\
+resource "aws_securityhub_account" "main" {
+  enable_default_standards = true
+}
+
+resource "aws_securityhub_standards_subscription" "cis_aws" {
+  standards_arn = "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/3.0.0"
+  depends_on    = [aws_securityhub_account.main]
+}
+
+resource "aws_securityhub_standards_subscription" "fsbp" {
+  standards_arn = "arn:aws:securityhub:::standards/aws-foundational-security-best-practices/v/1.0.0"
+  depends_on    = [aws_securityhub_account.main]
+}'''
+
+
+@_tf("iam-access-analyzer")
+def _tf_aws_access_analyzer(f: Finding) -> str:
+    return '''\
+resource "aws_accessanalyzer_analyzer" "default" {
+  analyzer_name = "default"
+  type          = "ACCOUNT"  # Use ORGANIZATION if AWS Organizations is in use
+}'''
+
+
+# ----- Encryption: EFS / SNS / SQS / Secrets Manager / ACM -----
+
+
+@_tf("efs-encryption")
+def _tf_aws_efs_encryption(f: Finding) -> str:
+    fs_id = f.details.get("file_system_id", "fs")
+    return f'''\
+# EFS encryption can only be enabled at creation. Recreate the file system:
+resource "aws_efs_file_system" "{_aws_safe(fs_id)}_encrypted" {{
+  creation_token = "{fs_id}-encrypted"
+  encrypted      = true
+  kms_key_id     = aws_kms_key.efs.arn
+}}
+
+resource "aws_kms_key" "efs" {{
+  description         = "EFS encryption key"
+  enable_key_rotation = true
+}}'''
+
+
+@_tf("sns-encryption")
+def _tf_aws_sns_encryption(f: Finding) -> str:
+    return '''\
+resource "aws_sns_topic" "encrypted_topic" {
+  name              = "TOPIC_NAME"
+  kms_master_key_id = "alias/aws/sns"  # or a customer-managed key alias
+}'''
+
+
+@_tf("sqs-encryption")
+def _tf_aws_sqs_encryption(f: Finding) -> str:
+    return '''\
+resource "aws_sqs_queue" "encrypted_queue" {
+  name                              = "QUEUE_NAME"
+  sqs_managed_sse_enabled           = true  # SQS-managed SSE (no KMS cost)
+  # OR for KMS:
+  # kms_master_key_id                 = "alias/aws/sqs"
+  # kms_data_key_reuse_period_seconds = 300
+}'''
+
+
+@_tf("secrets-manager-rotation")
+def _tf_aws_sm_rotation(f: Finding) -> str:
+    return '''\
+resource "aws_secretsmanager_secret" "db_password" {
+  name = "db_password"
+}
+
+resource "aws_secretsmanager_secret_rotation" "db_password" {
+  secret_id           = aws_secretsmanager_secret.db_password.id
+  rotation_lambda_arn = aws_lambda_function.rotator.arn
+
+  rotation_rules {
+    automatically_after_days = 30
+  }
+}'''
+
+
+@_tf("acm-expiring-certs")
+def _tf_aws_acm_renewal(f: Finding) -> str:
+    return '''\
+# Use DNS validation so ACM auto-renews ~60 days before expiry.
+# For email-validated or imported certs, switch to DNS-validated:
+resource "aws_acm_certificate" "main" {
+  domain_name       = "example.com"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for d in aws_acm_certificate.main.domain_validation_options : d.domain_name => {
+      name   = d.resource_record_name
+      record = d.resource_record_value
+      type   = d.resource_record_type
+    }
+  }
+  zone_id = "ZONE_ID"
+  name    = each.value.name
+  records = [each.value.record]
+  type    = each.value.type
+  ttl     = 60
+}'''
+
+
+# ----- Networking: ELB v2 -----
+
+
+@_tf("elb-listener-tls")
+def _tf_aws_elb_tls(f: Finding) -> str:
+    return '''\
+# Use a modern TLS policy and redirect HTTP -> HTTPS
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"  # CIS AWS
+  certificate_arn   = aws_acm_certificate.main.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+resource "aws_lb_listener" "http_redirect" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}'''
+
+
+@_tf("elb-access-logs")
+def _tf_aws_elb_access_logs(f: Finding) -> str:
+    return '''\
+resource "aws_lb" "main" {
+  name = "main"
+  # ... existing config ...
+
+  access_logs {
+    bucket  = aws_s3_bucket.elb_logs.id
+    prefix  = "alb-logs"
+    enabled = true
+  }
+}'''
+
+
+@_tf("elb-drop-invalid-headers")
+def _tf_aws_elb_drop_headers(f: Finding) -> str:
+    return '''\
+resource "aws_lb" "main" {
+  name = "main"
+  # ... existing config ...
+
+  drop_invalid_header_fields = true  # CIS AWS
+}'''
+
+
+# ----- Stage 2: Databases -----
+
+
+@_tf("rds-iam-auth")
+def _tf_aws_rds_iam_auth(f: Finding) -> str:
+    db_id = f.details.get("db", "main")
+    return f'''\
+resource "aws_db_instance" "{_aws_safe(db_id)}" {{
+  identifier = "{db_id}"
+  # ... existing config ...
+
+  iam_database_authentication_enabled = true  # CIS AWS 2.3.x
+}}'''
+
+
+@_tf("rds-deletion-protection")
+def _tf_aws_rds_deletion_protect(f: Finding) -> str:
+    db_id = f.details.get("db", "main")
+    return f'''\
+resource "aws_db_instance" "{_aws_safe(db_id)}" {{
+  identifier          = "{db_id}"
+  # ... existing config ...
+  deletion_protection = true
+}}'''
+
+
+@_tf("rds-pi-kms")
+def _tf_aws_rds_pi(f: Finding) -> str:
+    db_id = f.details.get("db", "main")
+    return f'''\
+resource "aws_db_instance" "{_aws_safe(db_id)}" {{
+  identifier = "{db_id}"
+  # ... existing config ...
+
+  performance_insights_enabled    = true
+  performance_insights_kms_key_id = aws_kms_key.rds_pi.arn
+}}
+
+resource "aws_kms_key" "rds_pi" {{
+  description         = "RDS Performance Insights"
+  enable_key_rotation = true
+}}'''
+
+
+@_tf("rds-auto-minor-upgrade")
+def _tf_aws_rds_minor(f: Finding) -> str:
+    db_id = f.details.get("db", "main")
+    return f'''\
+resource "aws_db_instance" "{_aws_safe(db_id)}" {{
+  identifier                  = "{db_id}"
+  # ... existing config ...
+  auto_minor_version_upgrade  = true
+}}'''
+
+
+@_tf("dynamodb-pitr")
+def _tf_aws_ddb_pitr(f: Finding) -> str:
+    return '''\
+resource "aws_dynamodb_table" "main" {
+  name = "TABLE_NAME"
+  # ... existing config ...
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}'''
+
+
+@_tf("dynamodb-kms")
+def _tf_aws_ddb_kms(f: Finding) -> str:
+    return '''\
+resource "aws_dynamodb_table" "main" {
+  name = "TABLE_NAME"
+  # ... existing config ...
+
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = aws_kms_key.dynamodb.arn  # Customer-managed
+  }
+}
+
+resource "aws_kms_key" "dynamodb" {
+  description         = "DynamoDB CMK"
+  enable_key_rotation = true
+}'''
+
+
+# ----- Stage 2: Serverless -----
+
+
+@_tf("lambda-runtime-eol")
+def _tf_aws_lambda_runtime(f: Finding) -> str:
+    deprecated = f.details.get("deprecated", [])
+    examples = ", ".join(d.get("name", "") if isinstance(d, dict) else str(d) for d in deprecated[:3])
+    return f'''\
+# Bump deprecated Lambda runtimes ({examples}) to a current version.
+resource "aws_lambda_function" "example" {{
+  function_name = "FUNCTION_NAME"
+  runtime       = "python3.12"  # or nodejs20.x / java21 / dotnet8
+  # ... existing config ...
+}}'''
+
+
+@_tf("lambda-env-kms")
+def _tf_aws_lambda_env_kms(f: Finding) -> str:
+    return '''\
+resource "aws_kms_key" "lambda_env" {
+  description         = "Lambda environment variable encryption"
+  enable_key_rotation = true
+}
+
+resource "aws_lambda_function" "example" {
+  function_name = "FUNCTION_NAME"
+  kms_key_arn   = aws_kms_key.lambda_env.arn
+  # ... existing config ...
+}'''
+
+
+@_tf("lambda-dlq")
+def _tf_aws_lambda_dlq(f: Finding) -> str:
+    return '''\
+resource "aws_sqs_queue" "lambda_dlq" {
+  name                       = "lambda-dlq"
+  message_retention_seconds  = 1209600  # 14 days
+}
+
+resource "aws_lambda_function" "example" {
+  function_name = "FUNCTION_NAME"
+  # ... existing config ...
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.lambda_dlq.arn
+  }
+}'''
+
+
+@_tf("apigw-logging")
+def _tf_aws_apigw_logging(f: Finding) -> str:
+    return '''\
+resource "aws_api_gateway_method_settings" "all" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  stage_name  = aws_api_gateway_stage.prod.stage_name
+  method_path = "*/*"
+
+  settings {
+    metrics_enabled = true
+    logging_level   = "INFO"
+  }
+}'''
+
+
+@_tf("apigw-waf")
+def _tf_aws_apigw_waf(f: Finding) -> str:
+    return '''\
+resource "aws_wafv2_web_acl" "apigw" {
+  name        = "apigw-waf"
+  scope       = "REGIONAL"
+  default_action { allow {} }
+
+  rule {
+    name     = "AWSManagedRulesCommonRuleSet"
+    priority = 1
+    override_action { none {} }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "common"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "apigw-waf"
+    sampled_requests_enabled   = true
+  }
+}
+
+resource "aws_wafv2_web_acl_association" "apigw" {
+  resource_arn = aws_api_gateway_stage.prod.arn
+  web_acl_arn  = aws_wafv2_web_acl.apigw.arn
+}'''
+
+
+@_tf("sfn-logging")
+def _tf_aws_sfn_logging(f: Finding) -> str:
+    return '''\
+resource "aws_cloudwatch_log_group" "sfn" {
+  name              = "/aws/states/STATE_MACHINE_NAME"
+  retention_in_days = 90
+}
+
+resource "aws_sfn_state_machine" "main" {
+  name     = "STATE_MACHINE_NAME"
+  # ... existing config ...
+
+  logging_configuration {
+    log_destination        = "${aws_cloudwatch_log_group.sfn.arn}:*"
+    include_execution_data = true
+    level                  = "ALL"
+  }
+}'''
+
+
+# ----- Stage 2: Backup -----
+
+
+@_tf("aws-backup-vault-lock")
+def _tf_aws_backup_vault_lock(f: Finding) -> str:
+    name = f.details.get("vault", "primary")
+    return f'''\
+resource "aws_backup_vault" "{_aws_safe(name)}" {{
+  name        = "{name}"
+  kms_key_arn = aws_kms_key.backup.arn
+}}
+
+resource "aws_backup_vault_lock_configuration" "{_aws_safe(name)}" {{
+  backup_vault_name   = aws_backup_vault.{_aws_safe(name)}.name
+  changeable_for_days = 3       # Compliance mode after 3 days
+  min_retention_days  = 30
+  max_retention_days  = 365
+}}
+
+resource "aws_kms_key" "backup" {{
+  description         = "AWS Backup vault encryption"
+  enable_key_rotation = true
+}}'''
+
+
+@_tf("aws-backup-plans")
+def _tf_aws_backup_plans(f: Finding) -> str:
+    return '''\
+resource "aws_backup_plan" "daily_35day" {
+  name = "daily-35day"
+
+  rule {
+    rule_name         = "daily"
+    target_vault_name = aws_backup_vault.primary.name
+    schedule          = "cron(0 5 ? * * *)"
+
+    lifecycle {
+      delete_after = 35
+    }
+  }
+}
+
+resource "aws_backup_selection" "all_resources" {
+  iam_role_arn = aws_iam_role.backup.arn
+  name         = "all-resources"
+  plan_id      = aws_backup_plan.daily_35day.id
+
+  selection_tag {
+    type  = "STRINGEQUALS"
+    key   = "backup"
+    value = "true"
+  }
+}'''
+
+
+# ----- Stage 3: Cross-cutting -----
+
+
+@_tf("aws-vpc-endpoints")
+def _tf_aws_vpc_endpoints(f: Finding) -> str:
+    return '''\
+# Gateway endpoints (free)
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = aws_route_table.private[*].id
+}
+
+resource "aws_vpc_endpoint" "dynamodb" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.region}.dynamodb"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = aws_route_table.private[*].id
+}
+
+# Interface endpoints (priced per AZ + per GB)
+locals {
+  interface_endpoints = [
+    "kms", "secretsmanager", "ssm", "ssmmessages", "ec2messages",
+    "ecr.api", "ecr.dkr", "logs", "sts"
+  ]
+}
+
+resource "aws_vpc_endpoint" "interface" {
+  for_each            = toset(local.interface_endpoints)
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.region}.${each.key}"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+}'''
+
+
+@_tf("cwl-kms-encryption")
+def _tf_aws_cwl_kms(f: Finding) -> str:
+    return '''\
+resource "aws_kms_key" "logs" {
+  description         = "CloudWatch Logs encryption"
+  enable_key_rotation = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowLogs"
+      Effect = "Allow"
+      Principal = { Service = "logs.${var.region}.amazonaws.com" }
+      Action = ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*",
+                "kms:GenerateDataKey*", "kms:Describe*"]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "app" {
+  name              = "/app/main"
+  retention_in_days = 90
+  kms_key_id        = aws_kms_key.logs.arn
+}'''
+
+
+@_tf("cwl-retention")
+def _tf_aws_cwl_retention(f: Finding) -> str:
+    return '''\
+# Apply a retention policy to existing log groups via for_each
+data "aws_cloudwatch_log_groups" "all" {}
+
+resource "aws_cloudwatch_log_group" "retention_patch" {
+  for_each          = toset(data.aws_cloudwatch_log_groups.all.log_group_names)
+  name              = each.value
+  retention_in_days = 90  # or 180/365 for compliance-critical
+}'''
+
+
+@_tf("aws-org-scps")
+def _tf_aws_scps(f: Finding) -> str:
+    return '''\
+# Deny CloudTrail disable / delete across all member accounts
+resource "aws_organizations_policy" "deny_cloudtrail_disable" {
+  name = "deny-cloudtrail-disable"
+  type = "SERVICE_CONTROL_POLICY"
+
+  content = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "DenyCloudTrailDisable"
+      Effect = "Deny"
+      Action = [
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors",
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_organizations_policy_attachment" "deny_ct" {
+  policy_id = aws_organizations_policy.deny_cloudtrail_disable.id
+  target_id = "ou-XXXX-XXXXXXXX"  # OU or account ID
+}'''
+
+
+@_tf("aws-tag-policy")
+def _tf_aws_tag_policy(f: Finding) -> str:
+    return '''\
+resource "aws_organizations_policy" "require_owner_tag" {
+  name = "require-owner-tag"
+  type = "TAG_POLICY"
+
+  content = jsonencode({
+    tags = {
+      owner = {
+        tag_key = { "@@assign" = "owner" }
+        enforced_for = { "@@assign" = ["ec2:instance", "rds:db", "s3:bucket"] }
+      }
+      environment = {
+        tag_key = { "@@assign" = "environment" }
+        tag_value = { "@@assign" = ["production", "staging", "dev"] }
+        enforced_for = { "@@assign" = ["ec2:instance", "rds:db", "s3:bucket"] }
+      }
+    }
+  })
+}'''
+
+
+# ---------------------------------------------------------------------------
 # Azure (azurerm) Terraform templates — covers the Stage 1/2/3 CIS Azure
 # v3.0 checks. Each template is a focused snippet that the operator drops
 # into the matching resource block; full resource definitions are intentionally
@@ -1071,6 +1739,335 @@ EXPLANATIONS: dict[str, dict] = {
             "Set up SNS notifications for future findings",
         ],
         "effort": "moderate",
+    },
+    # ----- CIS AWS v3.0 Stage 1-3 explanations -----
+    "cloudtrail-kms-encryption": {
+        "explanation": "CloudTrail logs are stored in S3 with default SSE-S3 encryption. Adding a customer-managed KMS key gives you key-level audit (every decrypt is logged), independent rotation, and the ability to revoke access without touching the bucket itself.",
+        "steps": [
+            "Create a KMS key with a policy allowing cloudtrail.amazonaws.com to encrypt",
+            "Update the trail with --kms-key-id <key-arn>",
+            "Verify CloudTrail can still write log files",
+        ],
+        "effort": "moderate",
+    },
+    "cloudtrail-log-validation": {
+        "explanation": "Without log file validation, an attacker who gains write access to the log bucket can modify or delete CloudTrail logs without detection. Log validation creates a hash chain of digest files signed by AWS — tampering breaks the chain in a way that's verifiable.",
+        "steps": [
+            "aws cloudtrail update-trail --name <name> --enable-log-file-validation",
+            "Use `aws cloudtrail validate-logs` periodically to verify the hash chain",
+        ],
+        "effort": "quick",
+    },
+    "cloudtrail-s3-object-lock": {
+        "explanation": "Object Lock with COMPLIANCE mode prevents anyone — including the root user — from deleting CloudTrail log objects before retention expires. It's the only AWS-side control that defeats a malicious admin or compromised root credential trying to wipe audit evidence.",
+        "steps": [
+            "Object Lock can only be enabled at bucket creation",
+            "Create a new bucket with object_lock_enabled + versioning",
+            "Migrate logs and update the trail to point at the new bucket",
+        ],
+        "effort": "significant",
+    },
+    "security-hub-enabled": {
+        "explanation": "Security Hub aggregates findings from GuardDuty, Inspector, Macie, Access Analyzer, Config, and the AWS Foundational + CIS standards into one console. Without it, security findings are scattered across per-service consoles with no unified prioritization or auto-remediation hook.",
+        "steps": [
+            "Enable Security Hub in your primary operating region",
+            "Subscribe to AWS Foundational Security Best Practices and CIS AWS Foundations Benchmark v3.0.0",
+            "Configure SNS or EventBridge for high-severity findings",
+        ],
+        "effort": "moderate",
+    },
+    "iam-access-analyzer": {
+        "explanation": "IAM Access Analyzer continuously monitors IAM resource policies (S3 buckets, KMS keys, IAM roles, Lambda, Secrets Manager) for unintended external access. It catches S3 buckets shared publicly, KMS keys assumable cross-account, and roles trusting unknown principals.",
+        "steps": [
+            "aws accessanalyzer create-analyzer --analyzer-name default --type ACCOUNT",
+            "Or use --type ORGANIZATION from the management account for org-wide coverage",
+            "Review findings in the IAM > Access analyzer console",
+        ],
+        "effort": "quick",
+    },
+    "efs-encryption": {
+        "explanation": "EFS encryption can only be enabled at creation. An unencrypted EFS file system stores data in clear on AWS disks — which means a snapshot leak, account compromise, or misconfigured backup gives an attacker the raw bytes.",
+        "steps": [
+            "Create a new encrypted EFS file system",
+            "Use AWS DataSync or a temporary EC2 instance with rsync to copy data",
+            "Cut over consumers (Lambda, ECS, EC2) and delete the old file system",
+        ],
+        "effort": "significant",
+    },
+    "sns-encryption": {
+        "explanation": "SNS messages may carry sensitive payloads (alerts, notifications, webhook payloads). Without KMS encryption, the message body sits in unencrypted SNS storage between publish and delivery.",
+        "steps": [
+            "aws sns set-topic-attributes --topic-arn <arn> --attribute-name KmsMasterKeyId --attribute-value alias/aws/sns",
+        ],
+        "effort": "quick",
+    },
+    "sqs-encryption": {
+        "explanation": "SQS messages sit in queue storage between enqueue and consume. Without encryption, that storage is unencrypted disk on AWS infrastructure. SqsManagedSseEnabled adds encryption with no KMS cost.",
+        "steps": [
+            "aws sqs set-queue-attributes --queue-url <url> --attributes SqsManagedSseEnabled=true",
+        ],
+        "effort": "quick",
+    },
+    "secrets-manager-rotation": {
+        "explanation": "Secrets without automatic rotation accumulate risk — credentials cycle outside any policy, stale secrets persist after staff turnover, and a leaked secret stays valid until someone notices. Lambda-backed rotation lets you set a 30-90 day schedule.",
+        "steps": [
+            "Pick or write a Lambda rotation function (AWS provides templates for RDS, Redshift, DocumentDB)",
+            "Attach it to each secret with a 30-day rotation schedule",
+            "Monitor CloudWatch alarms for rotation failures",
+        ],
+        "effort": "moderate",
+    },
+    "acm-expiring-certs": {
+        "explanation": "Expired certificates break TLS for whatever they're attached to (CloudFront, ALB, API Gateway). DNS-validated public certs in ACM auto-renew ~60 days before expiry; imported and email-validated certs do not.",
+        "steps": [
+            "Switch any email-validated certs to DNS validation",
+            "For imported certs, replace them or migrate to ACM-issued",
+            "Set up CloudWatch alarms on AWS/CertificateManager > DaysToExpiry < 30",
+        ],
+        "effort": "moderate",
+    },
+    "elb-listener-tls": {
+        "explanation": "HTTP listeners send credentials and session cookies in clear text. ELBSecurityPolicy-TLS-1-0/1.1 allows protocols vulnerable to BEAST/POODLE. Modern policies pin TLS 1.2+ with strong ciphers only.",
+        "steps": [
+            "Add HTTPS listeners with ELBSecurityPolicy-TLS13-1-2-2021-06",
+            "Convert HTTP listeners to redirect-to-HTTPS",
+        ],
+        "effort": "quick",
+    },
+    "elb-access-logs": {
+        "explanation": "Without access logs, you can't reconstruct request patterns during an incident — no source IPs, no paths, no user agents. SOC 2 expects request-level audit trail for production HTTP services.",
+        "steps": [
+            "Create an S3 bucket with the AWS-managed bucket policy for ELB log delivery",
+            "Enable access_logs.s3.enabled and point at the bucket",
+        ],
+        "effort": "quick",
+    },
+    "elb-drop-invalid-headers": {
+        "explanation": "Headers with invalid characters can be used for HTTP request smuggling and header-injection attacks against the backend. ALB has a one-flag fix to drop them at the edge.",
+        "steps": [
+            "Set routing.http.drop_invalid_header_fields.enabled = true on the ALB attributes",
+        ],
+        "effort": "quick",
+    },
+    "rds-iam-auth": {
+        "explanation": "Static DB passwords need rotation, vaulting, and access reviews. IAM database authentication uses short-lived tokens tied to an IAM identity that's already governed by your IAM controls — no password to leak.",
+        "steps": [
+            "Enable iam_database_authentication on the instance",
+            "Create a DB user mapped to an IAM role",
+            "Update apps to call rds.generate-db-auth-token instead of passing a password",
+        ],
+        "effort": "moderate",
+    },
+    "rds-deletion-protection": {
+        "explanation": "DeletionProtection prevents accidental DELETE — a misclick, a careless terraform destroy, or a compromised admin can otherwise wipe the database in seconds. Final snapshots help but add recovery time.",
+        "steps": [
+            "aws rds modify-db-instance --db-instance-identifier <id> --deletion-protection --apply-immediately",
+        ],
+        "effort": "quick",
+    },
+    "rds-pi-kms": {
+        "explanation": "Performance Insights captures query text including bind values. If queries contain PII or credentials (which they often do), PI data needs the same protection as the underlying database.",
+        "steps": [
+            "Create a CMK for PI",
+            "aws rds modify-db-instance --performance-insights-kms-key-id <key-arn>",
+        ],
+        "effort": "quick",
+    },
+    "rds-auto-minor-upgrade": {
+        "explanation": "Without auto minor upgrades, the instance won't receive security patches without a manual operation — and CVEs in DB engines are common. Auto upgrades happen during the maintenance window with zero data risk.",
+        "steps": [
+            "aws rds modify-db-instance --db-instance-identifier <id> --auto-minor-version-upgrade --apply-immediately",
+        ],
+        "effort": "quick",
+    },
+    "dynamodb-pitr": {
+        "explanation": "Point-in-Time Recovery lets you restore a DynamoDB table to any second within the last 35 days. Without it, accidental deletes/overwrites are unrecoverable — and there's no CLI command for 'undo'.",
+        "steps": [
+            "aws dynamodb update-continuous-backups --table-name <name> --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true",
+        ],
+        "effort": "quick",
+    },
+    "dynamodb-kms": {
+        "explanation": "DynamoDB tables are encrypted by default with an AWS-owned key — you can't audit decrypt calls and you can't revoke access independently. A customer-managed KMS key gives you key-level audit and rotation.",
+        "steps": [
+            "Create a CMK with rotation enabled",
+            "aws dynamodb update-table --table-name <name> --sse-specification Enabled=true,SSEType=KMS,KMSMasterKeyId=<key-arn>",
+        ],
+        "effort": "quick",
+    },
+    "lambda-runtime-eol": {
+        "explanation": "Functions on deprecated Lambda runtimes stop receiving security patches. AWS eventually blocks invocations after the deprecation deadline — so a function on python3.8 won't just be insecure, it'll stop running.",
+        "steps": [
+            "Identify each function on a deprecated runtime",
+            "Bump to a current runtime (python3.12, nodejs20.x, java21, dotnet8)",
+            "Test for breaking changes in dependencies, then redeploy",
+        ],
+        "effort": "moderate",
+    },
+    "lambda-env-kms": {
+        "explanation": "Lambda environment variables are encrypted by default with the Lambda service key. A customer-managed KMS key gives you key-level audit and the ability to rotate the encryption key independently.",
+        "steps": [
+            "Create a CMK",
+            "aws lambda update-function-configuration --function-name <name> --kms-key-arn <key-arn>",
+        ],
+        "effort": "quick",
+    },
+    "lambda-dlq": {
+        "explanation": "Async Lambda invocation failures are silently retried then dropped. With no DLQ or destination, you lose the failed payload entirely — no debugging trail, no replay capability.",
+        "steps": [
+            "Create an SQS queue or SNS topic to act as the DLQ",
+            "Attach via DeadLetterConfig.TargetArn or use Lambda Destinations for richer routing",
+        ],
+        "effort": "quick",
+    },
+    "lambda-code-signing": {
+        "explanation": "Code signing prevents an attacker who compromises a CI pipeline from deploying tampered code — only artifacts signed by an approved Signer profile will deploy. It's the supply-chain control AWS-native equivalent of cosign.",
+        "steps": [
+            "Create an AWS Signer profile",
+            "Define a code signing config that requires signed deployments",
+            "Attach the config to each function via PutFunctionCodeSigningConfig",
+        ],
+        "effort": "moderate",
+    },
+    "apigw-logging": {
+        "explanation": "Without execution logging, you cannot trace API request failures or correlate them with backend incidents. INFO level captures request/response metadata; ERROR level captures only failures.",
+        "steps": [
+            "Enable Execution logging at INFO level on each stage",
+            "Enable Detailed CloudWatch metrics for the stage",
+        ],
+        "effort": "quick",
+    },
+    "apigw-waf": {
+        "explanation": "API stages without WAF are exposed to OWASP Top 10, bot abuse, and credential stuffing. Even with auth, you need WAF for rate limiting and known-bad-input filtering.",
+        "steps": [
+            "Create a WAFv2 Web ACL with the AWS Managed Rules Common Rule Set",
+            "Add the AWS Managed Rules Bot Control rule group",
+            "wafv2:AssociateWebACL with each public API Gateway stage",
+        ],
+        "effort": "moderate",
+    },
+    "sfn-logging": {
+        "explanation": "Step Functions logging level OFF means execution history is only available via the StartExecution API and is lost after a few weeks. ALL level + includeExecutionData captures every state transition for incident investigation.",
+        "steps": [
+            "Create a CloudWatch Log Group for Step Functions",
+            "Update each state machine with logging configuration level=ALL",
+        ],
+        "effort": "quick",
+    },
+    "aws-backup-vault-lock": {
+        "explanation": "Without Vault Lock in COMPLIANCE mode, an attacker (or compromised admin) with backup:DeleteRecoveryPoint can wipe every backup in the vault — defeating your entire DR plan. Vault Lock COMPLIANCE makes recovery points immutable until retention expires, even for the root user.",
+        "steps": [
+            "aws backup put-backup-vault-lock-configuration with --changeable-for-days 3 (after 3 days the lock is irreversible)",
+            "Test that recovery points cannot be deleted before retention expires",
+        ],
+        "effort": "moderate",
+    },
+    "aws-backup-plans": {
+        "explanation": "Backup vaults exist but no Backup plan schedules recovery points — meaning nothing is being backed up automatically. The vault is just an empty container.",
+        "steps": [
+            "Create a backup plan via the Backup console or CLI",
+            "Use AWS-managed plans (Daily-35day, Monthly-1year) as a starting point",
+            "Add a backup selection that targets resources with tag backup=true",
+        ],
+        "effort": "moderate",
+    },
+    "aws-vpc-endpoints": {
+        "explanation": "Without VPC endpoints, EC2/ECS/EKS traffic to AWS services (S3, DynamoDB, KMS, Secrets Manager, ECR) traverses the public internet via NAT — adding NAT cost, latency, and exposure to internet-facing controls. Gateway endpoints (S3, DynamoDB) are free; interface endpoints are priced per AZ + per GB.",
+        "steps": [
+            "Create gateway endpoints for S3 and DynamoDB (free, no infra change)",
+            "Create interface endpoints for KMS, Secrets Manager, SSM, ECR, Logs, STS",
+            "Add SG rules allowing the VPC CIDR to reach the interface endpoint ENIs",
+        ],
+        "effort": "moderate",
+    },
+    "cwl-kms-encryption": {
+        "explanation": "Application logs frequently contain credentials, PII, or session tokens. Log groups encrypted with the AWS-owned default key give you no key-level audit and no way to revoke decrypt access independently.",
+        "steps": [
+            "Create a KMS key with a policy allowing logs.<region>.amazonaws.com to encrypt",
+            "aws logs associate-kms-key --log-group-name <name> --kms-key-id <key-arn>",
+        ],
+        "effort": "quick",
+    },
+    "cwl-retention": {
+        "explanation": "Log groups with infinite retention accumulate cost indefinitely. Log groups with retention < 90 days lose audit evidence too fast for SOC 2 — you need at least 90 days to investigate incidents reported by customers.",
+        "steps": [
+            "aws logs put-retention-policy --log-group-name <name> --retention-in-days 90",
+            "Use 180 / 365 days for compliance-critical groups (CloudTrail, Audit, Auth)",
+        ],
+        "effort": "quick",
+    },
+    "aws-org-scps": {
+        "explanation": "Service Control Policies are the only AWS-side control that can prevent member accounts from disabling CloudTrail, leaving regions, or assuming risky roles. Without custom SCPs you have no org-wide guardrails.",
+        "steps": [
+            "Author SCPs that deny CloudTrail disable/delete, root account use, and resource creation outside approved regions",
+            "Apply at OU level (test on a sandbox OU first)",
+        ],
+        "effort": "moderate",
+    },
+    "aws-tag-policy": {
+        "explanation": "Without tag policies, resources are tagged inconsistently — making cost allocation, ownership tracking, and policy-based access control unreliable.",
+        "steps": [
+            "Define a tag policy enforcing 'owner' and 'environment' keys at the org root",
+            "Attach to OUs and configure 'enforced for' on the resource types you care about",
+        ],
+        "effort": "moderate",
+    },
+    "aws-org-enabled": {
+        "explanation": "Without AWS Organizations, you can't apply SCPs, enforce centralized logging, share resources via RAM, or use Backup / Tag policies that need org-level scope. Single-account setups don't scale beyond a small team.",
+        "steps": [
+            "Create an Organization from a dedicated management account",
+            "Invite this account into it",
+            "Enable ALL features (not just consolidated billing)",
+        ],
+        "effort": "moderate",
+    },
+    "aws-delegated-admin": {
+        "explanation": "Security services should be delegated to a dedicated security account so the management account stays minimal-privilege and is rarely accessed. This is the AWS-recommended landing zone pattern.",
+        "steps": [
+            "Create a dedicated security/audit account",
+            "register-delegated-administrator for securityhub, guardduty, config, backup, access-analyzer",
+        ],
+        "effort": "moderate",
+    },
+    "aws-backup-policy": {
+        "explanation": "Without an org-level Backup policy, every member account needs its own backup plan defined manually — which scales badly and creates drift. Org policies enforce a baseline across every account automatically.",
+        "steps": [
+            "Define a backup policy via aws organizations create-policy --type BACKUP_POLICY",
+            "Attach to OUs",
+        ],
+        "effort": "moderate",
+    },
+    "aws-backup-vault-cmk": {
+        "explanation": "AWS Backup vaults encrypted with the AWS-managed key give you no key-level audit and no way to revoke decrypt independently. A customer-managed KMS key with rotation closes both gaps.",
+        "steps": [
+            "Recreate the vault with --encryption-key-arn pointing to a customer-managed KMS key",
+        ],
+        "effort": "moderate",
+    },
+    "aws-backup-vault-exists": {
+        "explanation": "Without an AWS Backup vault, you have no centralized place to manage recovery points across services. Each service's native backups (RDS snapshots, EBS snapshots, EFS recovery points) live independently with separate retention.",
+        "steps": [
+            "Create a Backup vault with KMS encryption",
+            "Create a Backup plan",
+            "Add resource selections via tags",
+        ],
+        "effort": "moderate",
+    },
+    "docdb-encryption": {
+        "explanation": "DocumentDB encryption can only be enabled at cluster creation. An unencrypted cluster means data is stored in clear on AWS disks.",
+        "steps": [
+            "Snapshot the cluster",
+            "Restore the snapshot with --storage-encrypted",
+            "Cut over and delete the old cluster",
+        ],
+        "effort": "significant",
+    },
+    "docdb-audit-logs": {
+        "explanation": "DocumentDB audit logs capture authentication, DDL, and DML events. Without audit log export, anomalous queries leave no trace.",
+        "steps": [
+            "aws docdb modify-db-cluster --cloudwatch-logs-export-configuration EnableLogTypes=audit",
+        ],
+        "effort": "quick",
     },
     # ----- Azure CIS v3.0 explanations -----
     "azure-storage-shared-key-access": {

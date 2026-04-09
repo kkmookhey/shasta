@@ -40,12 +40,258 @@ def run_all_networking_checks(client: AWSClient) -> list[Finding]:
 
     for r in regions:
         try:
-            ec2 = client.for_region(r).client("ec2")
+            rc = client.for_region(r)
+            ec2 = rc.client("ec2")
             findings.extend(check_security_groups(ec2, account_id, r))
             findings.extend(check_vpc_flow_logs(ec2, account_id, r))
             findings.extend(check_default_security_groups(ec2, account_id, r))
+            findings.extend(check_elb_listeners(rc, account_id, r))
+            findings.extend(check_elb_access_logs(rc, account_id, r))
+            findings.extend(check_elb_drop_invalid_headers(rc, account_id, r))
         except ClientError:
             continue
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS AWS v3.0 Stage 1 — ELBv2 listeners, access logs, header sanitisation
+# ---------------------------------------------------------------------------
+
+
+_INSECURE_TLS_POLICY_PREFIXES = (
+    "ELBSecurityPolicy-2016",
+    "ELBSecurityPolicy-TLS-1-0",
+    "ELBSecurityPolicy-TLS-1-1",
+    "ELBSecurityPolicy-FS-",  # FS without a year suffix
+)
+
+
+def check_elb_listeners(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS] ALB/NLB listeners must use modern TLS policies and HTTPS."""
+    findings: list[Finding] = []
+    try:
+        elbv2 = client.client("elbv2")
+        lbs = elbv2.describe_load_balancers().get("LoadBalancers", [])
+    except ClientError:
+        return []
+
+    for lb in lbs:
+        arn = lb.get("LoadBalancerArn", "")
+        name = lb.get("LoadBalancerName", "unknown")
+        try:
+            listeners = elbv2.describe_listeners(LoadBalancerArn=arn).get("Listeners", [])
+        except ClientError:
+            continue
+
+        weak_listeners: list[dict] = []
+        http_listeners: list[dict] = []
+        for ln in listeners:
+            proto = ln.get("Protocol", "")
+            if proto == "HTTP":
+                http_listeners.append({"port": ln.get("Port"), "arn": ln.get("ListenerArn")})
+                continue
+            if proto in ("HTTPS", "TLS"):
+                policy = ln.get("SslPolicy", "")
+                if any(policy.startswith(p) for p in _INSECURE_TLS_POLICY_PREFIXES):
+                    weak_listeners.append(
+                        {"port": ln.get("Port"), "policy": policy, "arn": ln.get("ListenerArn")}
+                    )
+
+        problems = []
+        if http_listeners:
+            problems.append(f"{len(http_listeners)} HTTP listener(s)")
+        if weak_listeners:
+            problems.append(f"{len(weak_listeners)} weak-TLS listener(s)")
+
+        if not problems:
+            findings.append(
+                Finding(
+                    check_id="elb-listener-tls",
+                    title=f"ELB '{name}' uses modern TLS on all listeners",
+                    description="No HTTP listeners and no listeners using ELBSecurityPolicy-TLS-1-0/1.1.",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.NETWORKING,
+                    resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC6.1", "CC6.6", "CC6.7"],
+                    cis_aws_controls=["2.x"],
+                    details={"name": name, "listener_count": len(listeners)},
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="elb-listener-tls",
+                    title=f"ELB '{name}' has insecure listener config: {', '.join(problems)}",
+                    description=(
+                        "HTTP listeners send credentials and session cookies in clear text. "
+                        "ELBSecurityPolicy-TLS-1-0/1.1 allows BEAST/POODLE-vulnerable protocols. "
+                        "Use ELBSecurityPolicy-TLS13-1-2-2021-06 or newer."
+                    ),
+                    severity=Severity.HIGH,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.NETWORKING,
+                    resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        "Redirect HTTP listeners to HTTPS, and update HTTPS listener "
+                        "SslPolicy to ELBSecurityPolicy-TLS13-1-2-2021-06."
+                    ),
+                    soc2_controls=["CC6.1", "CC6.6", "CC6.7"],
+                    cis_aws_controls=["2.x"],
+                    details={
+                        "name": name,
+                        "http_listeners": http_listeners,
+                        "weak_tls_listeners": weak_listeners,
+                    },
+                )
+            )
+
+    return findings
+
+
+def check_elb_access_logs(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS] ALB/NLB access logging should be enabled."""
+    findings: list[Finding] = []
+    try:
+        elbv2 = client.client("elbv2")
+        lbs = elbv2.describe_load_balancers().get("LoadBalancers", [])
+    except ClientError:
+        return []
+
+    for lb in lbs:
+        arn = lb.get("LoadBalancerArn", "")
+        name = lb.get("LoadBalancerName", "unknown")
+        try:
+            attrs = elbv2.describe_load_balancer_attributes(LoadBalancerArn=arn).get(
+                "Attributes", []
+            )
+            attr_map = {a["Key"]: a["Value"] for a in attrs}
+        except ClientError:
+            continue
+
+        enabled = attr_map.get("access_logs.s3.enabled") == "true"
+        bucket = attr_map.get("access_logs.s3.bucket", "")
+        if enabled:
+            findings.append(
+                Finding(
+                    check_id="elb-access-logs",
+                    title=f"ELB '{name}' has access logging enabled",
+                    description=f"Access logs delivered to s3://{bucket}",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.NETWORKING,
+                    resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC7.1"],
+                    cis_aws_controls=["2.x"],
+                    details={"name": name, "bucket": bucket},
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="elb-access-logs",
+                    title=f"ELB '{name}' has access logging disabled",
+                    description=(
+                        "Without access logs, you can't reconstruct request patterns during an "
+                        "incident — no IPs, no paths, no user agents."
+                    ),
+                    severity=Severity.MEDIUM,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.NETWORKING,
+                    resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        f"aws elbv2 modify-load-balancer-attributes --load-balancer-arn {arn} "
+                        "--attributes Key=access_logs.s3.enabled,Value=true "
+                        "Key=access_logs.s3.bucket,Value=<log-bucket>"
+                    ),
+                    soc2_controls=["CC7.1"],
+                    cis_aws_controls=["2.x"],
+                    details={"name": name},
+                )
+            )
+
+    return findings
+
+
+def check_elb_drop_invalid_headers(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS] ALB should have routing.http.drop_invalid_header_fields enabled."""
+    findings: list[Finding] = []
+    try:
+        elbv2 = client.client("elbv2")
+        lbs = elbv2.describe_load_balancers().get("LoadBalancers", [])
+    except ClientError:
+        return []
+
+    for lb in lbs:
+        if lb.get("Type") != "application":
+            continue
+        arn = lb.get("LoadBalancerArn", "")
+        name = lb.get("LoadBalancerName", "unknown")
+        try:
+            attrs = elbv2.describe_load_balancer_attributes(LoadBalancerArn=arn).get(
+                "Attributes", []
+            )
+            attr_map = {a["Key"]: a["Value"] for a in attrs}
+        except ClientError:
+            continue
+
+        enabled = attr_map.get("routing.http.drop_invalid_header_fields.enabled") == "true"
+        if enabled:
+            findings.append(
+                Finding(
+                    check_id="elb-drop-invalid-headers",
+                    title=f"ALB '{name}' drops invalid HTTP headers",
+                    description="Headers with invalid characters are dropped before reaching the backend.",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.NETWORKING,
+                    resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC6.6"],
+                    cis_aws_controls=["2.x"],
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="elb-drop-invalid-headers",
+                    title=f"ALB '{name}' forwards invalid headers",
+                    description=(
+                        "drop_invalid_header_fields is disabled. Malformed headers can be used "
+                        "for HTTP request smuggling and header-injection attacks against the backend."
+                    ),
+                    severity=Severity.MEDIUM,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.NETWORKING,
+                    resource_type="AWS::ElasticLoadBalancingV2::LoadBalancer",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        f"aws elbv2 modify-load-balancer-attributes --load-balancer-arn {arn} "
+                        "--attributes Key=routing.http.drop_invalid_header_fields.enabled,Value=true"
+                    ),
+                    soc2_controls=["CC6.6"],
+                    cis_aws_controls=["2.x"],
+                )
+            )
 
     return findings
 

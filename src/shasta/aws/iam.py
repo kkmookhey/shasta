@@ -238,9 +238,7 @@ def check_root_account_activity(iam: Any, account_id: str, region: str) -> list[
                 key_date = datetime.fromisoformat(key_last_used.replace("Z", "+00:00"))
                 if last_activity is None or key_date > last_activity:
                     last_activity = key_date
-                activity_sources.append(
-                    f"access key {key_num} on {key_date.date().isoformat()}"
-                )
+                activity_sources.append(f"access key {key_num} on {key_date.date().isoformat()}")
             except (ValueError, TypeError):
                 pass
 

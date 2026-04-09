@@ -111,10 +111,374 @@ def run_all_logging_checks(client: AWSClient) -> list[Finding]:
     region = client.account_info.region if client.account_info else "us-east-1"
 
     findings.extend(check_cloudtrail(client, account_id, region))
+    findings.extend(check_cloudtrail_kms_encryption(client, account_id, region))
+    findings.extend(check_cloudtrail_log_validation(client, account_id, region))
+    findings.extend(check_cloudtrail_s3_object_lock(client, account_id, region))
+    findings.extend(check_security_hub(client, account_id, region))
+    findings.extend(check_iam_access_analyzer(client, account_id, region))
     findings.extend(check_guardduty(client, account_id, region))
     findings.extend(check_aws_config(client, account_id, region))
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# CIS AWS v3.0 Stage 1 — CloudTrail / Security Hub / Access Analyzer
+# ---------------------------------------------------------------------------
+
+
+def check_cloudtrail_kms_encryption(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS 3.5] CloudTrail logs should be encrypted with customer-managed KMS keys."""
+    findings: list[Finding] = []
+    try:
+        ct = client.client("cloudtrail")
+        trails = ct.describe_trails().get("trailList", [])
+    except ClientError:
+        return []
+
+    for trail in trails:
+        name = trail.get("Name", "unknown")
+        arn = trail.get("TrailARN", "")
+        kms_key = trail.get("KmsKeyId")
+        if kms_key:
+            findings.append(
+                Finding(
+                    check_id="cloudtrail-kms-encryption",
+                    title=f"CloudTrail '{name}' encrypts logs with KMS",
+                    description=f"Trail uses KMS key {kms_key} for log encryption.",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.MONITORING,
+                    resource_type="AWS::CloudTrail::Trail",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC6.7", "CC7.1"],
+                    cis_aws_controls=["3.5"],
+                    details={"trail": name, "kms_key": kms_key},
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="cloudtrail-kms-encryption",
+                    title=f"CloudTrail '{name}' uses default S3 SSE only",
+                    description=(
+                        "Trail logs are not encrypted with a customer-managed KMS key. SSE-S3 "
+                        "is enabled by default but doesn't give you key-level audit, key "
+                        "rotation, or independent access control over the logs."
+                    ),
+                    severity=Severity.MEDIUM,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.MONITORING,
+                    resource_type="AWS::CloudTrail::Trail",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        "Create a customer-managed KMS key with a policy allowing "
+                        "cloudtrail.amazonaws.com to encrypt, then update the trail with "
+                        "--kms-key-id."
+                    ),
+                    soc2_controls=["CC6.7", "CC7.1"],
+                    cis_aws_controls=["3.5"],
+                    details={"trail": name, "kms_key": None},
+                )
+            )
+
+    return findings
+
+
+def check_cloudtrail_log_validation(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS 3.2] CloudTrail log file validation should be enabled."""
+    findings: list[Finding] = []
+    try:
+        ct = client.client("cloudtrail")
+        trails = ct.describe_trails().get("trailList", [])
+    except ClientError:
+        return []
+
+    for trail in trails:
+        name = trail.get("Name", "unknown")
+        arn = trail.get("TrailARN", "")
+        validated = bool(trail.get("LogFileValidationEnabled", False))
+        if validated:
+            findings.append(
+                Finding(
+                    check_id="cloudtrail-log-validation",
+                    title=f"CloudTrail '{name}' has log file validation enabled",
+                    description="Digital signatures + hash digests prove log integrity.",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.MONITORING,
+                    resource_type="AWS::CloudTrail::Trail",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC7.1", "CC8.1"],
+                    cis_aws_controls=["3.2"],
+                    details={"trail": name},
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="cloudtrail-log-validation",
+                    title=f"CloudTrail '{name}' has log file validation DISABLED",
+                    description=(
+                        "Without log file validation, an attacker who gains write access to the "
+                        "log bucket can modify or delete CloudTrail logs without detection. Log "
+                        "validation creates a hash chain that fails closed if logs are tampered."
+                    ),
+                    severity=Severity.HIGH,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.MONITORING,
+                    resource_type="AWS::CloudTrail::Trail",
+                    resource_id=arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        f"aws cloudtrail update-trail --name {name} --enable-log-file-validation"
+                    ),
+                    soc2_controls=["CC7.1", "CC8.1"],
+                    cis_aws_controls=["3.2"],
+                    details={"trail": name},
+                )
+            )
+
+    return findings
+
+
+def check_cloudtrail_s3_object_lock(
+    client: AWSClient, account_id: str, region: str
+) -> list[Finding]:
+    """[CIS AWS 3.x] The S3 bucket holding CloudTrail logs should have Object Lock enabled."""
+    findings: list[Finding] = []
+    try:
+        ct = client.client("cloudtrail")
+        s3 = client.client("s3")
+        trails = ct.describe_trails().get("trailList", [])
+    except ClientError:
+        return []
+
+    seen_buckets: set[str] = set()
+    for trail in trails:
+        bucket = trail.get("S3BucketName")
+        if not bucket or bucket in seen_buckets:
+            continue
+        seen_buckets.add(bucket)
+
+        try:
+            cfg = s3.get_object_lock_configuration(Bucket=bucket)
+            enabled = (cfg.get("ObjectLockConfiguration", {}) or {}).get(
+                "ObjectLockEnabled"
+            ) == "Enabled"
+        except ClientError:
+            enabled = False
+
+        bucket_arn = f"arn:aws:s3:::{bucket}"
+        if enabled:
+            findings.append(
+                Finding(
+                    check_id="cloudtrail-s3-object-lock",
+                    title=f"CloudTrail S3 bucket '{bucket}' has Object Lock enabled",
+                    description="Logs are immutable and cannot be deleted or overwritten before retention expires.",
+                    severity=Severity.INFO,
+                    status=ComplianceStatus.PASS,
+                    domain=CheckDomain.MONITORING,
+                    resource_type="AWS::S3::Bucket",
+                    resource_id=bucket_arn,
+                    region=region,
+                    account_id=account_id,
+                    soc2_controls=["CC7.1", "A1.2"],
+                    cis_aws_controls=["3.x"],
+                    details={"bucket": bucket},
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    check_id="cloudtrail-s3-object-lock",
+                    title=f"CloudTrail S3 bucket '{bucket}' has no Object Lock",
+                    description=(
+                        "The S3 bucket holding CloudTrail logs has no Object Lock configuration. "
+                        "An admin or attacker with s3:DeleteObject can wipe audit logs. "
+                        "Object Lock with COMPLIANCE mode prevents deletion even by the root user."
+                    ),
+                    severity=Severity.MEDIUM,
+                    status=ComplianceStatus.FAIL,
+                    domain=CheckDomain.MONITORING,
+                    resource_type="AWS::S3::Bucket",
+                    resource_id=bucket_arn,
+                    region=region,
+                    account_id=account_id,
+                    remediation=(
+                        "Object Lock can only be enabled when a bucket is created. "
+                        "Migrate CloudTrail logs to a new bucket created with Object Lock + "
+                        "versioning, then update the trail to point at the new bucket."
+                    ),
+                    soc2_controls=["CC7.1", "A1.2"],
+                    cis_aws_controls=["3.x"],
+                    details={"bucket": bucket},
+                )
+            )
+
+    return findings
+
+
+def check_security_hub(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS 4.16] AWS Security Hub should be enabled in every region."""
+    findings: list[Finding] = []
+    try:
+        regions = client.get_enabled_regions()
+    except ClientError:
+        regions = [region]
+
+    enabled: list[str] = []
+    disabled: list[str] = []
+    for r in regions:
+        try:
+            sh = client.for_region(r).client("securityhub")
+            sh.describe_hub()
+            enabled.append(r)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code == "InvalidAccessException":
+                disabled.append(r)
+
+    if not disabled and enabled:
+        return [
+            Finding(
+                check_id="security-hub-enabled",
+                title=f"Security Hub enabled in all {len(enabled)} region(s)",
+                description=f"Security Hub is active in: {', '.join(sorted(enabled))}.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.MONITORING,
+                resource_type="AWS::SecurityHub::Hub",
+                resource_id=f"arn:aws:securityhub:{region}:{account_id}:hub/default",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC7.1", "CC7.2"],
+                cis_aws_controls=["4.16"],
+                details={"enabled_regions": sorted(enabled)},
+            )
+        ]
+    if not enabled:
+        return [
+            Finding(
+                check_id="security-hub-enabled",
+                title="Security Hub is NOT enabled in any region",
+                description=(
+                    "Security Hub aggregates findings from GuardDuty, Inspector, Macie, IAM "
+                    "Access Analyzer, and CIS conformance packs. Without it, security findings "
+                    "live in per-service consoles with no unified view or auto-remediation hook."
+                ),
+                severity=Severity.MEDIUM,
+                status=ComplianceStatus.FAIL,
+                domain=CheckDomain.MONITORING,
+                resource_type="AWS::SecurityHub::Hub",
+                resource_id=f"arn:aws:securityhub:{region}:{account_id}:hub/default",
+                region=region,
+                account_id=account_id,
+                remediation=(
+                    "Enable Security Hub in your primary operating region(s) and turn on the "
+                    "AWS Foundational Security Best Practices + CIS AWS Foundations standards."
+                ),
+                soc2_controls=["CC7.1", "CC7.2"],
+                cis_aws_controls=["4.16"],
+            )
+        ]
+    return [
+        Finding(
+            check_id="security-hub-enabled",
+            title=f"Security Hub enabled in {len(enabled)} of {len(regions)} region(s)",
+            description=(
+                f"Enabled in: {', '.join(sorted(enabled))}. Missing in: "
+                f"{', '.join(sorted(disabled))}."
+            ),
+            severity=Severity.LOW,
+            status=ComplianceStatus.PARTIAL,
+            domain=CheckDomain.MONITORING,
+            resource_type="AWS::SecurityHub::Hub",
+            resource_id=f"arn:aws:securityhub:{region}:{account_id}:hub/default",
+            region=region,
+            account_id=account_id,
+            soc2_controls=["CC7.1", "CC7.2"],
+            cis_aws_controls=["4.16"],
+            details={"enabled_regions": sorted(enabled), "disabled_regions": sorted(disabled)},
+        )
+    ]
+
+
+def check_iam_access_analyzer(client: AWSClient, account_id: str, region: str) -> list[Finding]:
+    """[CIS AWS 1.20] IAM Access Analyzer should be enabled in every region."""
+    findings: list[Finding] = []
+    try:
+        regions = client.get_enabled_regions()
+    except ClientError:
+        regions = [region]
+
+    region_status: dict[str, int] = {}
+    for r in regions:
+        try:
+            aa = client.for_region(r).client("accessanalyzer")
+            analyzers = aa.list_analyzers().get("analyzers", [])
+            region_status[r] = sum(1 for a in analyzers if a.get("status") == "ACTIVE")
+        except ClientError:
+            region_status[r] = 0
+
+    enabled = [r for r, n in region_status.items() if n > 0]
+    disabled = [r for r, n in region_status.items() if n == 0]
+
+    if not disabled and enabled:
+        return [
+            Finding(
+                check_id="iam-access-analyzer",
+                title=f"IAM Access Analyzer enabled in all {len(enabled)} region(s)",
+                description="At least one ACTIVE analyzer per region.",
+                severity=Severity.INFO,
+                status=ComplianceStatus.PASS,
+                domain=CheckDomain.IAM,
+                resource_type="AWS::AccessAnalyzer::Analyzer",
+                resource_id=f"arn:aws:access-analyzer:{region}:{account_id}",
+                region=region,
+                account_id=account_id,
+                soc2_controls=["CC6.1", "CC6.2"],
+                cis_aws_controls=["1.20"],
+                details={"enabled_regions": sorted(enabled)},
+            )
+        ]
+    return [
+        Finding(
+            check_id="iam-access-analyzer",
+            title=f"IAM Access Analyzer missing in {len(disabled)} region(s)",
+            description=(
+                "IAM Access Analyzer continuously monitors resource policies for unintended "
+                "external access (S3 buckets shared publicly, IAM roles assumable cross-account, "
+                "KMS keys, Lambda functions, etc). Without it, leaked-bucket findings only show "
+                "up after a customer reports them."
+            ),
+            severity=Severity.MEDIUM,
+            status=ComplianceStatus.FAIL,
+            domain=CheckDomain.IAM,
+            resource_type="AWS::AccessAnalyzer::Analyzer",
+            resource_id=f"arn:aws:access-analyzer:{region}:{account_id}",
+            region=region,
+            account_id=account_id,
+            remediation=(
+                "aws accessanalyzer create-analyzer --analyzer-name default --type ACCOUNT "
+                "(repeat per region, or create one ORGANIZATION-scoped analyzer)"
+            ),
+            soc2_controls=["CC6.1", "CC6.2"],
+            cis_aws_controls=["1.20"],
+            details={"enabled_regions": sorted(enabled), "disabled_regions": sorted(disabled)},
+        )
+    ]
 
 
 def check_cloudtrail(client: AWSClient, account_id: str, region: str) -> list[Finding]:
@@ -333,9 +697,7 @@ def check_guardduty(client: AWSClient, account_id: str, region: str) -> list[Fin
         primary = enabled_regions[0]
         primary_detector = per_region[primary]["detector_id"]
         total_active_findings = sum(
-            int(v)
-            for r in enabled_regions
-            for v in per_region[r]["severity_counts"].values()
+            int(v) for r in enabled_regions for v in per_region[r]["severity_counts"].values()
         )
         findings.append(
             Finding(
@@ -380,9 +742,7 @@ def check_guardduty(client: AWSClient, account_id: str, region: str) -> list[Fin
                 has_critical_type = any(
                     _is_critical_guardduty_type(tf.get("type", "")) for tf in top_findings
                 )
-                has_high_numeric = any(
-                    float(tf.get("severity") or 0) >= 7.0 for tf in top_findings
-                )
+                has_high_numeric = any(float(tf.get("severity") or 0) >= 7.0 for tf in top_findings)
                 if has_critical_type:
                     severity = Severity.CRITICAL
                 elif has_high_numeric:

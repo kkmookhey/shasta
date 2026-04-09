@@ -148,7 +148,62 @@ def _run_aws_checks(client: Any, domains: list[CheckDomain]) -> list[Finding]:
         runner = aws_domain_runners.get(domain)
         if runner:
             findings.extend(runner(client))
+
+    findings.extend(_run_aws_extras(client, domains))
     return findings
+
+
+def _run_aws_extras(client: Any, domains: list[CheckDomain]) -> list[Finding]:
+    """Run the Stage 2/3 AWS modules: databases, serverless, backup, walkers."""
+    extras: list[Finding] = []
+
+    if CheckDomain.STORAGE in domains or CheckDomain.ENCRYPTION in domains:
+        try:
+            from shasta.aws.databases import run_all_aws_database_checks
+
+            extras.extend(run_all_aws_database_checks(client))
+        except Exception:
+            pass
+
+    if CheckDomain.COMPUTE in domains or CheckDomain.MONITORING in domains:
+        try:
+            from shasta.aws.serverless import run_all_aws_serverless_checks
+
+            extras.extend(run_all_aws_serverless_checks(client))
+        except Exception:
+            pass
+
+    if CheckDomain.MONITORING in domains:
+        try:
+            from shasta.aws.backup import run_all_aws_backup_checks
+
+            extras.extend(run_all_aws_backup_checks(client))
+        except Exception:
+            pass
+
+        try:
+            from shasta.aws.organizations import run_all_aws_organizations_checks
+
+            extras.extend(run_all_aws_organizations_checks(client))
+        except Exception:
+            pass
+
+        try:
+            from shasta.aws.cloudwatch_logs import run_all_aws_cloudwatch_log_checks
+
+            extras.extend(run_all_aws_cloudwatch_log_checks(client))
+        except Exception:
+            pass
+
+    if CheckDomain.NETWORKING in domains:
+        try:
+            from shasta.aws.vpc_endpoints import run_all_aws_vpc_endpoint_checks
+
+            extras.extend(run_all_aws_vpc_endpoint_checks(client))
+        except Exception:
+            pass
+
+    return extras
 
 
 def _run_aws_checks_multi_region(

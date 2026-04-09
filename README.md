@@ -822,7 +822,7 @@ shasta/
 
 ## License
 
-Private repository. Contact kkmookhey for access.
+MIT License. See `LICENSE`.
 
 ---
 

@@ -6,7 +6,7 @@ Whitney is an AI security and governance scanner. This document explains exactly
 
 ## Three Layers of Validation
 
-### Layer 1: Unit Tests (319 tests)
+### Layer 1: Unit Tests (419 tests)
 
 Every Whitney module has comprehensive test coverage. Tests use realistic code samples, not toy examples.
 

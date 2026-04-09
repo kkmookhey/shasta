@@ -384,7 +384,7 @@ Whitney shares Shasta's core infrastructure:
 - [x] EU AI Act framework (8 obligations, scoring, mapping)
 - [x] AI governance policy generator (7 templates covering all policy-required controls)
 - [x] AI SBOM scanner (CycloneDX 1.5 output for SDKs, models, cloud services)
-- [x] 340 tests (319 unit + 21 integration), validated against live AWS and Azure
+- [x] 419 tests, validated against live AWS and Azure
 
 ## What's Next
 

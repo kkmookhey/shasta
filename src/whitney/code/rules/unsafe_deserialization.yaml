@@ -31,6 +31,12 @@ rules:
     metadata:
       check_id: code-unsafe-deserialization
       whitney_severity: critical
+      cwe: ["CWE-502"]
+      owasp: ["LLM05:2025"]
+      confidence: HIGH
+      category: security
+      technology: [pickle]
+      references: ["https://blog.trailofbits.com/2021/03/15/never-a-dull-moment-when-you-find-a-pickle-in-your-ml-toolkit/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: >
         Use json, safetensors, or ONNX formats instead of pickle.
@@ -56,6 +62,12 @@ rules:
     metadata:
       check_id: code-unsafe-deserialization
       whitney_severity: critical
+      cwe: ["CWE-502"]
+      owasp: ["LLM05:2025"]
+      confidence: HIGH
+      category: security
+      technology: [pytorch]
+      references: ["https://blog.trailofbits.com/2021/03/15/never-a-dull-moment-when-you-find-a-pickle-in-your-ml-toolkit/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: >
         Use torch.load(..., weights_only=True) to prevent code execution.
@@ -71,7 +83,9 @@ rules:
   # --- NumPy ---
   - id: code-unsafe-deserialization-numpy-load
     patterns:
-      - pattern: numpy.load(..., allow_pickle=True, ...)
+      - pattern-either:
+          - pattern: numpy.load(..., allow_pickle=True, ...)
+          - pattern: np.load(..., allow_pickle=True, ...)
     message: >
       numpy.load() with allow_pickle=True can execute arbitrary code
       from a malicious .npy/.npz file. NumPy disabled pickle by default
@@ -81,6 +95,12 @@ rules:
     metadata:
       check_id: code-unsafe-deserialization
       whitney_severity: high
+      cwe: ["CWE-502"]
+      owasp: ["LLM05:2025"]
+      confidence: HIGH
+      category: security
+      technology: [numpy]
+      references: ["https://blog.trailofbits.com/2021/03/15/never-a-dull-moment-when-you-find-a-pickle-in-your-ml-toolkit/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: >
         Remove allow_pickle=True. If pickle is needed, validate the
@@ -105,6 +125,12 @@ rules:
     metadata:
       check_id: code-unsafe-deserialization
       whitney_severity: high
+      cwe: ["CWE-502"]
+      owasp: ["LLM05:2025"]
+      confidence: HIGH
+      category: security
+      technology: [scikit-learn]
+      references: ["https://blog.trailofbits.com/2021/03/15/never-a-dull-moment-when-you-find-a-pickle-in-your-ml-toolkit/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: >
         Only load joblib files from trusted sources. Consider ONNX export
@@ -132,6 +158,12 @@ rules:
     metadata:
       check_id: code-unsafe-deserialization
       whitney_severity: high
+      cwe: ["CWE-502"]
+      owasp: ["LLM05:2025"]
+      confidence: HIGH
+      category: security
+      technology: [keras, tensorflow]
+      references: ["https://blog.trailofbits.com/2021/03/15/never-a-dull-moment-when-you-find-a-pickle-in-your-ml-toolkit/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: >
         Use safe_mode=True when loading Keras models. Validate model
@@ -144,6 +176,7 @@ rules:
       - pattern-not: yaml.load($DATA, Loader=yaml.SafeLoader)
       - pattern-not: yaml.load($DATA, Loader=yaml.CSafeLoader)
       - pattern-not: yaml.safe_load($DATA)
+    fix: yaml.safe_load($DATA)
     message: >
       yaml.load() without SafeLoader can execute arbitrary Python code.
       ML config files (model cards, training configs, pipeline definitions)
@@ -153,6 +186,12 @@ rules:
     metadata:
       check_id: code-unsafe-deserialization
       whitney_severity: high
+      cwe: ["CWE-502"]
+      owasp: ["LLM05:2025"]
+      confidence: HIGH
+      category: security
+      technology: [pyyaml]
+      references: ["https://pyyaml.org/wiki/PyYAMLDocumentation"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: >
         Use yaml.safe_load() or yaml.load(data, Loader=yaml.SafeLoader).

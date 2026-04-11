@@ -23,6 +23,13 @@ rules:
     metadata:
       check_id: code-rag-no-access-control
       whitney_severity: medium
+      cwe: ["CWE-862"]
+      owasp: ["LLM08:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [langchain]
+      references:
+        - https://owasp.org/www-project-top-10-for-large-language-model-applications/
       soc2_controls: ["CC6.1", "CC6.3"]
       remediation: "Add user-level or tenant-level metadata filters to vector DB queries to prevent cross-tenant data access."
 
@@ -42,6 +49,13 @@ rules:
     metadata:
       check_id: code-rag-no-access-control
       whitney_severity: medium
+      cwe: ["CWE-862"]
+      owasp: ["LLM08:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [pinecone]
+      references:
+        - https://owasp.org/www-project-top-10-for-large-language-model-applications/
       soc2_controls: ["CC6.1", "CC6.3"]
       remediation: "Add filter= or namespace= to Pinecone queries for tenant isolation."
 
@@ -63,6 +77,13 @@ rules:
     metadata:
       check_id: code-rag-no-access-control
       whitney_severity: medium
+      cwe: ["CWE-862"]
+      owasp: ["LLM08:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [chroma]
+      references:
+        - https://owasp.org/www-project-top-10-for-large-language-model-applications/
       soc2_controls: ["CC6.1", "CC6.3"]
       remediation: "Add where= filter to Chroma queries for tenant isolation."
 
@@ -82,6 +103,13 @@ rules:
     metadata:
       check_id: code-rag-no-access-control
       whitney_severity: medium
+      cwe: ["CWE-862"]
+      owasp: ["LLM08:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [qdrant]
+      references:
+        - https://owasp.org/www-project-top-10-for-large-language-model-applications/
       soc2_controls: ["CC6.1", "CC6.3"]
       remediation: "Add query_filter= to Qdrant searches for tenant isolation."
 
@@ -102,5 +130,12 @@ rules:
     metadata:
       check_id: code-rag-no-access-control
       whitney_severity: medium
+      cwe: ["CWE-862"]
+      owasp: ["LLM08:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [weaviate]
+      references:
+        - https://owasp.org/www-project-top-10-for-large-language-model-applications/
       soc2_controls: ["CC6.1", "CC6.3"]
       remediation: "Add filters= to Weaviate queries for tenant isolation."

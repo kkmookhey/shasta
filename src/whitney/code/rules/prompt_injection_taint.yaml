@@ -25,6 +25,12 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: critical
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: HIGH
+      category: security
+      technology: [flask, openai]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: >
         Sanitize user input before including in prompts. Use structured
         message APIs. Consider input validation, output filtering, and
@@ -38,6 +44,7 @@ rules:
           - pattern: flask.request.json[...]
           - pattern: flask.request.get_json(...)
           - pattern: flask.request.data
+          - pattern: flask.request.files[...]
           - pattern: request.form[...]
           - pattern: request.form.get(...)
           - pattern: request.args[...]
@@ -45,6 +52,7 @@ rules:
           - pattern: request.json[...]
           - pattern: request.get_json(...)
           - pattern: request.data
+          - pattern: request.files[...]
     pattern-sanitizers:
       - pattern-either:
           - pattern: bleach.clean(...)
@@ -74,11 +82,25 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: critical
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: HIGH
+      category: security
+      technology: [flask, anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: >
         Sanitize user input before including in Anthropic prompts.
         Use structured content blocks and input validation.
     pattern-sources:
       - pattern-either:
+          - pattern: flask.request.form[...]
+          - pattern: flask.request.form.get(...)
+          - pattern: flask.request.args[...]
+          - pattern: flask.request.args.get(...)
+          - pattern: flask.request.json[...]
+          - pattern: flask.request.get_json(...)
+          - pattern: flask.request.data
+          - pattern: flask.request.files[...]
           - pattern: request.form[...]
           - pattern: request.form.get(...)
           - pattern: request.args[...]
@@ -86,8 +108,12 @@ rules:
           - pattern: request.json[...]
           - pattern: request.get_json(...)
           - pattern: request.data
+          - pattern: request.files[...]
     pattern-sanitizers:
       - pattern-either:
+          - pattern: bleach.clean(...)
+          - pattern: html.escape(...)
+          - pattern: markupsafe.escape(...)
           - pattern: sanitize_prompt(...)
           - pattern: validate_input(...)
           - pattern: clean_input(...)
@@ -110,28 +136,60 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: critical
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: HIGH
+      category: security
+      technology: [fastapi, openai, anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: >
         Validate FastAPI request parameters with Pydantic models before
         including in LLM prompts. Add input length limits and content
         filtering.
     pattern-sources:
-      - pattern-either:
-          - pattern: |
-              async def $FUNC(..., $PARAM: str, ...):
-                  ...
-          - pattern: |
-              def $FUNC(..., $PARAM: str, ...):
-                  ...
-          - pattern: |
-              async def $FUNC(..., $PARAM = Body(...), ...):
-                  ...
-          - pattern: |
-              async def $FUNC(..., $PARAM = Query(...), ...):
-                  ...
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  async def $FUNC(..., $PARAM = Body(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  async def $FUNC(..., $PARAM = Query(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  async def $FUNC(..., $PARAM = Form(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  async def $FUNC(..., $PARAM = Path(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  async def $FUNC(..., $PARAM = Header(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  def $FUNC(..., $PARAM = Body(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  def $FUNC(..., $PARAM = Query(...), ...):
+                      ...
+              - pattern: |
+                  @$APP.$METHOD(...)
+                  def $FUNC(..., $PARAM = Form(...), ...):
+                      ...
+          - focus-metavariable: $PARAM
     pattern-sanitizers:
       - pattern-either:
+          - pattern: bleach.clean(...)
+          - pattern: html.escape(...)
+          - pattern: markupsafe.escape(...)
           - pattern: sanitize_prompt(...)
           - pattern: validate_input(...)
+          - pattern: clean_input(...)
     pattern-sinks:
       - pattern-either:
           - pattern: |
@@ -140,6 +198,8 @@ rules:
               $CLIENT.messages.create(..., messages=$MSGS, ...)
           - pattern: |
               {"role": "user", "content": $SINK}
+          - pattern: |
+              {"role": "system", "content": $SINK}
 
   # --- Django → OpenAI/Anthropic ---
   - id: code-prompt-injection-taint-django
@@ -153,6 +213,12 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: critical
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: HIGH
+      category: security
+      technology: [django, openai, anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: >
         Validate Django request data with Django Forms or serializers
         before including in LLM prompts.
@@ -163,10 +229,16 @@ rules:
           - pattern: request.GET[...]
           - pattern: request.GET.get(...)
           - pattern: request.body
+          - pattern: request.FILES[...]
+          - pattern: request.FILES.get(...)
     pattern-sanitizers:
       - pattern-either:
+          - pattern: bleach.clean(...)
+          - pattern: html.escape(...)
+          - pattern: markupsafe.escape(...)
           - pattern: sanitize_prompt(...)
           - pattern: validate_input(...)
+          - pattern: clean_input(...)
     pattern-sinks:
       - pattern-either:
           - pattern: |
@@ -175,6 +247,8 @@ rules:
               $CLIENT.messages.create(..., messages=$MSGS, ...)
           - pattern: |
               {"role": "user", "content": $SINK}
+          - pattern: |
+              {"role": "system", "content": $SINK}
 
   # --- JavaScript/TypeScript: Express → OpenAI ---
   - id: code-prompt-injection-taint-express
@@ -188,6 +262,12 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: critical
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: HIGH
+      category: security
+      technology: [express, openai, anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: >
         Validate and sanitize req.body/req.query before including in
         LLM prompts. Use input validation middleware.
@@ -207,6 +287,12 @@ rules:
           - pattern: |
               $CLIENT.chat.completions.create({..., messages: $MSGS, ...})
           - pattern: |
+              $CLIENT.messages.create({..., messages: $MSGS, ...})
+          - pattern: |
               {role: "user", content: $SINK}
           - pattern: |
               {"role": "user", "content": $SINK}
+          - pattern: |
+              {role: "system", content: $SINK}
+          - pattern: |
+              {"role": "system", "content": $SINK}

@@ -23,6 +23,12 @@ rules:
       check_id: code-meta-prompt-exposed
       whitney_severity: medium
       soc2_controls: ["CC6.1"]
+      cwe: ["CWE-200"]
+      owasp: ["LLM07:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [flask]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Store system prompts in environment variables or a config service, not inline in route handlers."
 
   # --- System prompt assigned to variable (Python) ---
@@ -32,6 +38,8 @@ rules:
           - pattern: $PROMPT = "..."
           - pattern: $PROMPT = f"..."
           - pattern: $PROMPT = '''...'''
+          - pattern: $PROMPT = """..."""
+          - pattern: $PROMPT = textwrap.dedent(...)
       - metavariable-regex:
           metavariable: $PROMPT
           regex: "(?i)(system_prompt|SYSTEM_PROMPT|system_message|SYSTEM_MESSAGE|sys_prompt|SYS_PROMPT|instructions|INSTRUCTIONS)"
@@ -51,6 +59,12 @@ rules:
       check_id: code-meta-prompt-exposed
       whitney_severity: medium
       soc2_controls: ["CC6.1"]
+      cwe: ["CWE-200"]
+      owasp: ["LLM07:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [python]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Store system prompts in environment variables or a config service. Do not expose to clients."
 
   # --- System prompt in JavaScript/TypeScript ---
@@ -61,8 +75,6 @@ rules:
               { role: "system", content: $CONTENT }
           - pattern: |
               { "role": "system", "content": $CONTENT }
-      - pattern-not-inside: |
-          // ...
     message: >
       System prompt found in a message object with role "system". Ensure
       this is not exposed to clients or logged in plaintext.
@@ -79,4 +91,10 @@ rules:
       check_id: code-meta-prompt-exposed
       whitney_severity: medium
       soc2_controls: ["CC6.1"]
+      cwe: ["CWE-200"]
+      owasp: ["LLM07:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [javascript, typescript]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Store system prompts in environment variables or a config service."

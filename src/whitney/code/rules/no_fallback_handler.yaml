@@ -19,6 +19,12 @@ rules:
       check_id: code-no-fallback-handler
       whitney_severity: low
       soc2_controls: ["CC7.2", "CC7.5"]
+      cwe: ["CWE-755"]
+      owasp: []
+      confidence: HIGH
+      category: best-practice
+      technology: [openai]
+      references: ["https://platform.openai.com/docs/guides/error-codes"]
       remediation: "Wrap AI API calls in try/except blocks with fallback behaviour for timeouts and rate limits."
 
   - id: code-no-fallback-handler-anthropic
@@ -38,6 +44,12 @@ rules:
       check_id: code-no-fallback-handler
       whitney_severity: low
       soc2_controls: ["CC7.2", "CC7.5"]
+      cwe: ["CWE-755"]
+      owasp: []
+      confidence: HIGH
+      category: best-practice
+      technology: [anthropic]
+      references: ["https://platform.openai.com/docs/guides/error-codes"]
       remediation: "Wrap Anthropic API calls in try/except with fallback for overloaded_error and rate_limit_error."
 
   - id: code-no-fallback-handler-langchain
@@ -60,4 +72,10 @@ rules:
       check_id: code-no-fallback-handler
       whitney_severity: low
       soc2_controls: ["CC7.2", "CC7.5"]
+      cwe: ["CWE-755"]
+      owasp: []
+      confidence: HIGH
+      category: best-practice
+      technology: [langchain]
+      references: ["https://platform.openai.com/docs/guides/error-codes"]
       remediation: "Wrap LangChain invoke/run calls in try/except with retry or fallback behaviour."

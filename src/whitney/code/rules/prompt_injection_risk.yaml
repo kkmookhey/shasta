@@ -13,6 +13,12 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: high
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [openai]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Sanitise user input before including in prompts. Use structured message APIs rather than string interpolation."
 
   # --- Anthropic SDK: f-string in messages content ---
@@ -29,6 +35,12 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: high
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Sanitise user input before including in prompts. Use structured message APIs."
 
   # --- LangChain: user input in prompt template ---
@@ -47,6 +59,12 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: high
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [langchain]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Use LangChain input variables ({variable}) instead of f-string interpolation in prompt templates."
 
   # --- Generic: f-string with user input variable in message dict ---
@@ -65,11 +83,17 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: high
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [openai, anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Sanitise user input before including in prompts. Use structured message APIs."
 
   # --- Generic: .format() with user input in message dict ---
   - id: code-prompt-injection-risk-format-in-dict
-    pattern-regex: '"content"\s*:\s*"[^"]*\{[^}]*\}"\.format\s*\((?:request|req|user|input|query|msg)'
+    pattern-regex: '"content"\s*:\s*"[^"]*\{[^}]*\}[^"]*"\.format\s*\((?:request|req|user|input|query|msg)'
     message: >
       User input variable appears to be interpolated into an AI prompt
       content field via .format(). This enables prompt injection attacks.
@@ -83,4 +107,10 @@ rules:
       check_id: code-prompt-injection-risk
       whitney_severity: high
       soc2_controls: ["CC6.1", "CC7.2"]
+      cwe: ["CWE-94"]
+      owasp: ["LLM01:2025"]
+      confidence: MEDIUM
+      category: security
+      technology: [openai, anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Sanitise user input before including in prompts. Use parameterised APIs."

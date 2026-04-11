@@ -24,6 +24,12 @@ rules:
     metadata:
       check_id: code-mcp-tool-scope
       whitney_severity: high
+      cwe: ["CWE-78"]
+      owasp: ["LLM08:2025"]
+      confidence: HIGH
+      category: security
+      technology: [mcp]
+      references: ["https://spec.modelcontextprotocol.io/specification/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: "Remove shell execution from MCP tools. Use allowlisted commands with validated inputs. Sandbox dangerous operations."
 
@@ -39,6 +45,18 @@ rules:
           - pattern: open($PATH, "w", ...)
           - pattern: open($PATH, "a")
           - pattern: open($PATH, "a", ...)
+          - pattern: open($PATH, "wb")
+          - pattern: open($PATH, "wb", ...)
+          - pattern: open($PATH, "ab")
+          - pattern: open($PATH, "ab", ...)
+          - pattern: open($PATH, "w+")
+          - pattern: open($PATH, "w+", ...)
+          - pattern: open($PATH, "a+")
+          - pattern: open($PATH, "a+", ...)
+          - pattern: open($PATH, "r+")
+          - pattern: open($PATH, "r+", ...)
+          - pattern: open($PATH, "x")
+          - pattern: open($PATH, "x", ...)
           - pattern: shutil.rmtree(...)
           - pattern: shutil.move(...)
           - pattern: os.remove(...)
@@ -54,6 +72,12 @@ rules:
     metadata:
       check_id: code-mcp-tool-scope
       whitney_severity: high
+      cwe: ["CWE-73"]
+      owasp: ["LLM08:2025"]
+      confidence: HIGH
+      category: security
+      technology: [mcp]
+      references: ["https://spec.modelcontextprotocol.io/specification/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: "Restrict MCP tools to read-only file access. Validate and allowlist paths. Use a sandboxed directory."
 
@@ -77,6 +101,12 @@ rules:
     metadata:
       check_id: code-mcp-tool-scope
       whitney_severity: high
+      cwe: ["CWE-89"]
+      owasp: ["LLM08:2025"]
+      confidence: HIGH
+      category: security
+      technology: [mcp]
+      references: ["https://spec.modelcontextprotocol.io/specification/"]
       soc2_controls: ["CC6.1", "CC7.2"]
       remediation: "Use parameterised queries (cursor.execute(sql, params)). Never interpolate tool inputs into SQL strings."
 
@@ -96,6 +126,12 @@ rules:
     metadata:
       check_id: code-mcp-input-validation
       whitney_severity: medium
+      cwe: ["CWE-20"]
+      owasp: ["LLM08:2025"]
+      confidence: HIGH
+      category: security
+      technology: [mcp]
+      references: ["https://spec.modelcontextprotocol.io/specification/"]
       soc2_controls: ["CC6.1"]
       remediation: "Define typed input parameters for MCP tools using Pydantic models or explicit function signatures."
 
@@ -114,5 +150,11 @@ rules:
     metadata:
       check_id: code-mcp-input-validation
       whitney_severity: medium
+      cwe: ["CWE-20"]
+      owasp: ["LLM08:2025"]
+      confidence: HIGH
+      category: security
+      technology: [mcp]
+      references: ["https://spec.modelcontextprotocol.io/specification/"]
       soc2_controls: ["CC6.1"]
       remediation: "Define typed input parameters for MCP tools using explicit function signatures."

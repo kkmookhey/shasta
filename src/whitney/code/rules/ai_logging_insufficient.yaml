@@ -23,11 +23,17 @@ rules:
           ...
           logger.debug(...)
       - pattern-not-inside: |
-          print(...)
+          logger.warning(...)
           ...
       - pattern-not-inside: |
           ...
-          print(...)
+          logger.warning(...)
+      - pattern-not-inside: |
+          logging.warning(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logging.warning(...)
     message: >
       OpenAI API call without apparent logging nearby. AI interactions should
       be logged for observability and audit.
@@ -41,6 +47,12 @@ rules:
       check_id: code-ai-logging-insufficient
       whitney_severity: medium
       soc2_controls: ["CC7.2", "CC7.3"]
+      cwe: ["CWE-778"]
+      owasp: []
+      confidence: MEDIUM
+      category: best-practice
+      technology: [openai]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Add logging around AI API calls capturing: request metadata, response status, latency, and token usage."
 
   - id: code-ai-logging-insufficient-anthropic
@@ -65,11 +77,17 @@ rules:
           ...
           logger.debug(...)
       - pattern-not-inside: |
-          print(...)
+          logger.warning(...)
           ...
       - pattern-not-inside: |
           ...
-          print(...)
+          logger.warning(...)
+      - pattern-not-inside: |
+          logging.warning(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logging.warning(...)
     message: >
       Anthropic API call without apparent logging nearby. AI interactions
       should be logged for observability and audit.
@@ -83,6 +101,12 @@ rules:
       check_id: code-ai-logging-insufficient
       whitney_severity: medium
       soc2_controls: ["CC7.2", "CC7.3"]
+      cwe: ["CWE-778"]
+      owasp: []
+      confidence: MEDIUM
+      category: best-practice
+      technology: [anthropic]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Add logging around Anthropic API calls capturing: request metadata, response status, latency, and token usage."
 
   - id: code-ai-logging-insufficient-langchain
@@ -109,11 +133,17 @@ rules:
           ...
           logger.debug(...)
       - pattern-not-inside: |
-          print(...)
+          logger.warning(...)
           ...
       - pattern-not-inside: |
           ...
-          print(...)
+          logger.warning(...)
+      - pattern-not-inside: |
+          logging.warning(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logging.warning(...)
     message: >
       LangChain invoke call without apparent logging nearby. Chain
       interactions should be logged. Consider using LangChain callbacks
@@ -128,4 +158,10 @@ rules:
       check_id: code-ai-logging-insufficient
       whitney_severity: medium
       soc2_controls: ["CC7.2", "CC7.3"]
+      cwe: ["CWE-778"]
+      owasp: []
+      confidence: MEDIUM
+      category: best-practice
+      technology: [langchain]
+      references: ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
       remediation: "Add logging or LangChain callbacks for observability. Capture chain inputs, outputs, and latency."

@@ -115,12 +115,14 @@ OWASP_LLM_TOP10: dict[str, OWASPLLMRisk] = {
         ),
         check_ids=[
             "code-outdated-ai-sdk",
+            "code-unsafe-deserialization",
             "lambda-ai-api-keys-not-hardcoded",
         ],
         soc2_equivalent=["CC7.1", "CC9.1"],
         guidance=(
             "Keep AI SDKs updated. Use the AI SBOM to track all AI "
             "dependencies. Scan third-party models before deployment. "
+            "Never use pickle/torch.load on untrusted model files. "
             "Manage API keys via secrets manager."
         ),
     ),

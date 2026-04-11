@@ -141,12 +141,14 @@ NIST_AI_600_1_RISKS: dict[str, NISTAI6001Risk] = {
             "s3-training-data-encrypted",
             "s3-training-data-versioned",
             "code-training-data-unencrypted",
+            "code-unsafe-deserialization",
         ],
         nist_rmf_crosswalk=["MAP-4", "MANAGE-2"],
         guidance=(
             "Encrypt training data at rest and in transit. Enable "
             "versioning to detect unauthorised modifications. Validate "
-            "data provenance before fine-tuning."
+            "data provenance before fine-tuning. Never use pickle or "
+            "torch.load on untrusted model files."
         ),
     ),
     "GAI-7": NISTAI6001Risk(
@@ -202,6 +204,7 @@ NIST_AI_600_1_RISKS: dict[str, NISTAI6001Risk] = {
         ),
         check_ids=[
             "code-outdated-ai-sdk",
+            "code-unsafe-deserialization",
             "lambda-ai-api-keys-not-hardcoded",
             "azure-openai-managed-identity",
             "azure-openai-key-rotation",
@@ -210,7 +213,8 @@ NIST_AI_600_1_RISKS: dict[str, NISTAI6001Risk] = {
         guidance=(
             "Track AI dependencies via SBOM. Keep SDKs updated. Use "
             "managed identities instead of API keys. Rotate credentials "
-            "regularly. Monitor for CVEs in AI packages."
+            "regularly. Never load untrusted pickle/torch model files. "
+            "Monitor for CVEs in AI packages."
         ),
     ),
     "GAI-10": NISTAI6001Risk(

@@ -29,8 +29,8 @@ class TestScanRepository:
         check_ids = [f.check_id for f in findings]
         assert "code-ai-api-key-exposed" in check_ids
 
-    def test_runs_all_15_checks_without_error(self, tmp_path):
-        """All checks should run even on a complex repo."""
+    def test_runs_semgrep_checks_without_error(self, tmp_path):
+        """Semgrep + Python checks should run on a complex repo."""
         write_file(
             tmp_path,
             "app.py",

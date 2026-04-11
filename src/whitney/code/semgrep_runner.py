@@ -60,6 +60,7 @@ def semgrep_available() -> bool:
             ["semgrep", "--version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=10,
         )
         _SEMGREP_AVAILABLE = result.returncode == 0
@@ -94,6 +95,7 @@ def run_semgrep(repo_path: str | Path) -> list[Finding]:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=300,
         )
     except subprocess.TimeoutExpired:

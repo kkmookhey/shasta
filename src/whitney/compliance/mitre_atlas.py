@@ -155,13 +155,15 @@ ATLAS_TECHNIQUES: dict[str, ATLASTechnique] = {
         ),
         check_ids=[
             "code-training-data-unencrypted",
+            "code-unsafe-deserialization",
             "s3-training-data-encrypted",
             "s3-training-data-versioned",
         ],
         soc2_equivalent=["CC6.1", "CC6.7"],
         guidance=(
             "Encrypt and version training data. Validate data provenance. "
-            "Use checksums to detect tampering."
+            "Use checksums to detect tampering. Never load untrusted "
+            "pickle/torch model files — use safetensors format."
         ),
     ),
     "AML.T0011": ATLASTechnique(

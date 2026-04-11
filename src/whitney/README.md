@@ -8,9 +8,9 @@ Part of the Sierra Nevada mountain range: **Shasta** (14,179 ft) secures your cl
 
 ### Deterministic by Design
 
-Whitney uses **zero LLM calls**. Every finding is produced by Semgrep AST-based pattern matching (with regex fallback), AWS/Azure SDK API calls, dictionary lookups, and arithmetic. There is no probabilistic model, no prompt, no token consumption in the scanning pipeline.
+Whitney uses **zero LLM calls**. Every finding is produced by [Semgrep](https://semgrep.dev) AST-based pattern matching, taint analysis, AWS/Azure SDK API calls, dictionary lookups, and arithmetic. There is no probabilistic model, no prompt, no token consumption in the scanning pipeline.
 
-The code scanner uses a **dual-engine architecture**: when [Semgrep](https://semgrep.dev) is installed, 13 of the 20 code checks run as AST-aware Semgrep rules (more precise than regex, immune to formatting issues, won't match in comments). The 7 checks that need file-level context analysis (rate limiting, outdated SDK, MCP server security, A2A protocol security) stay as Python. If Semgrep is not installed, all 20 checks fall back to the original regex engine.
+The code scanner runs **48 Semgrep rules** across 16 files — AST-aware patterns that understand code structure, not just text. This includes **5 taint analysis rules** that trace user input from web framework request objects (Flask, FastAPI, Django, Express) to LLM API calls, catching prompt injection through intermediate variables. Seven checks that require file-level context analysis (rate limiting, outdated SDK, MCP/A2A protocol) run as Python alongside Semgrep. Semgrep is a **required dependency** (`pip install semgrep`).
 
 This is a deliberate architectural choice and a differentiator. Most AI security vendors (Straiker, Lakera, CalypsoAI) use LLMs in their detection pipeline, which means their results vary between runs. Whitney's results are **100% reproducible**: same code + same infrastructure = same findings, every time.
 

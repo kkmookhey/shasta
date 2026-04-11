@@ -2,6 +2,8 @@
 
 Scans GitHub repositories (cloned or local) for AI-specific security
 vulnerabilities and returns compliance findings.
+
+Requires Semgrep: ``pip install semgrep``
 """
 
 from __future__ import annotations
@@ -11,10 +13,14 @@ import subprocess
 from pathlib import Path
 
 from shasta.evidence.models import Finding
-from whitney.code.checks import ALL_CHECKS, PYTHON_ONLY_CHECKS
+from whitney.code.checks import PYTHON_ONLY_CHECKS
 from whitney.code.semgrep_runner import run_semgrep, semgrep_available
 
 logger = logging.getLogger(__name__)
+
+
+class SemgrepNotInstalledError(RuntimeError):
+    """Raised when Semgrep is not installed."""
 
 
 def scan_repository(
@@ -25,6 +31,9 @@ def scan_repository(
 ) -> list[Finding]:
     """Scan a code repository for AI security issues.
 
+    Uses Semgrep AST-based rules (48 rules) plus Python-only checks
+    for patterns that require file-level context analysis.
+
     Args:
         repo_path: Local path to the repository (or where it should be cloned).
         github_token: GitHub personal access token for cloning private repos.
@@ -33,6 +42,10 @@ def scan_repository(
 
     Returns:
         A list of :class:`Finding` objects, one per detected issue.
+
+    Raises:
+        SemgrepNotInstalledError: If Semgrep is not installed.
+        FileNotFoundError: If the repo path does not exist.
     """
     repo_path = Path(repo_path)
 
@@ -48,43 +61,37 @@ def scan_repository(
     if not repo_path.is_dir():
         raise NotADirectoryError(f"{repo_path} is not a directory.")
 
-    logger.info("Scanning repository at %s", repo_path)
+    if not semgrep_available():
+        raise SemgrepNotInstalledError(
+            "Semgrep is required for Whitney code scanning. Install it with: pip install semgrep"
+        )
 
+    logger.info("Scanning repository at %s", repo_path)
     findings: list[Finding] = []
 
-    if semgrep_available():
-        # Dual-engine mode: Semgrep for 13 checks + Python for 2
-        logger.info("Semgrep available — using AST-based scanning engine")
-        semgrep_findings = run_semgrep(repo_path)
-        findings.extend(semgrep_findings)
-        logger.info("Semgrep engine: %d finding(s)", len(semgrep_findings))
+    # Semgrep AST-based rules (48 rules across 16 files)
+    logger.info("Running Semgrep AST scanner (48 rules)")
+    semgrep_findings = run_semgrep(repo_path)
+    findings.extend(semgrep_findings)
+    logger.info("Semgrep engine: %d finding(s)", len(semgrep_findings))
 
-        # Run the 2 Python-only checks (rate limiting + outdated SDK)
-        for check_fn in PYTHON_ONLY_CHECKS:
-            check_name = check_fn.__name__
-            try:
-                results = check_fn(repo_path)
-                findings.extend(results)
-                logger.info("Python check %s: %d finding(s)", check_name, len(results))
-            except Exception:
-                logger.exception("Check %s failed", check_name)
-    else:
-        # Fallback: all 15 regex-based checks
-        logger.info("Semgrep not available — falling back to regex engine")
-        for check_fn in ALL_CHECKS:
-            check_name = check_fn.__name__
-            try:
-                logger.debug("Running check: %s", check_name)
-                results = check_fn(repo_path)
-                findings.extend(results)
-                logger.info("Check %s completed: %d finding(s)", check_name, len(results))
-            except Exception:
-                logger.exception("Check %s failed with an unexpected error", check_name)
+    # Python-only checks — patterns requiring file-level context analysis
+    # (rate limiting, outdated SDK, MCP/A2A protocol checks)
+    for check_fn in PYTHON_ONLY_CHECKS:
+        check_name = check_fn.__name__
+        try:
+            results = check_fn(repo_path)
+            findings.extend(results)
+            if results:
+                logger.info(
+                    "Python check %s: %d finding(s)",
+                    check_name,
+                    len(results),
+                )
+        except Exception:
+            logger.exception("Check %s failed", check_name)
 
-    logger.info(
-        "Scan complete: %d total finding(s)",
-        len(findings),
-    )
+    logger.info("Scan complete: %d total finding(s)", len(findings))
     return findings
 
 

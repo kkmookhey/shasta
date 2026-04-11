@@ -1,0 +1,212 @@
+rules:
+  # ===================================================================
+  # Taint analysis: user input → LLM prompt (prompt injection)
+  # ===================================================================
+  # Uses Semgrep's taint mode to trace data flow from web framework
+  # request objects to LLM API calls. This catches prompt injection
+  # that pattern-matching rules miss — e.g., when user input flows
+  # through intermediate variables, string concatenation, or helper
+  # functions within the same file.
+  #
+  # Works in open-source Semgrep (single-file, intraprocedural).
+  # Semgrep Pro adds cross-file and interprocedural tracking.
+
+  # --- Flask → OpenAI ---
+  - id: code-prompt-injection-taint-flask-openai
+    mode: taint
+    message: >
+      Unsanitized Flask request data flows to OpenAI ChatCompletion prompt.
+      This enables prompt injection — an attacker can override system
+      instructions by crafting malicious input. Validate and sanitize
+      user input before including in LLM prompts.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: critical
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: >
+        Sanitize user input before including in prompts. Use structured
+        message APIs. Consider input validation, output filtering, and
+        prompt injection detection libraries.
+    pattern-sources:
+      - pattern-either:
+          - pattern: flask.request.form[...]
+          - pattern: flask.request.form.get(...)
+          - pattern: flask.request.args[...]
+          - pattern: flask.request.args.get(...)
+          - pattern: flask.request.json[...]
+          - pattern: flask.request.get_json(...)
+          - pattern: flask.request.data
+          - pattern: request.form[...]
+          - pattern: request.form.get(...)
+          - pattern: request.args[...]
+          - pattern: request.args.get(...)
+          - pattern: request.json[...]
+          - pattern: request.get_json(...)
+          - pattern: request.data
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: bleach.clean(...)
+          - pattern: html.escape(...)
+          - pattern: markupsafe.escape(...)
+          - pattern: sanitize_prompt(...)
+          - pattern: validate_input(...)
+          - pattern: clean_input(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.chat.completions.create(..., messages=$MSGS, ...)
+          - pattern: |
+              {"role": "user", "content": $SINK}
+          - pattern: |
+              {"role": "system", "content": $SINK}
+
+  # --- Flask → Anthropic ---
+  - id: code-prompt-injection-taint-flask-anthropic
+    mode: taint
+    message: >
+      Unsanitized Flask request data flows to Anthropic Messages API.
+      This enables prompt injection attacks.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: critical
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: >
+        Sanitize user input before including in Anthropic prompts.
+        Use structured content blocks and input validation.
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.form[...]
+          - pattern: request.form.get(...)
+          - pattern: request.args[...]
+          - pattern: request.args.get(...)
+          - pattern: request.json[...]
+          - pattern: request.get_json(...)
+          - pattern: request.data
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: sanitize_prompt(...)
+          - pattern: validate_input(...)
+          - pattern: clean_input(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.messages.create(..., messages=$MSGS, ...)
+          - pattern: |
+              {"role": "user", "content": $SINK}
+
+  # --- FastAPI → OpenAI/Anthropic ---
+  - id: code-prompt-injection-taint-fastapi
+    mode: taint
+    message: >
+      Unsanitized FastAPI request parameter flows to LLM API call.
+      This enables prompt injection attacks.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: critical
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: >
+        Validate FastAPI request parameters with Pydantic models before
+        including in LLM prompts. Add input length limits and content
+        filtering.
+    pattern-sources:
+      - pattern-either:
+          - pattern: |
+              async def $FUNC(..., $PARAM: str, ...):
+                  ...
+          - pattern: |
+              def $FUNC(..., $PARAM: str, ...):
+                  ...
+          - pattern: |
+              async def $FUNC(..., $PARAM = Body(...), ...):
+                  ...
+          - pattern: |
+              async def $FUNC(..., $PARAM = Query(...), ...):
+                  ...
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: sanitize_prompt(...)
+          - pattern: validate_input(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.chat.completions.create(..., messages=$MSGS, ...)
+          - pattern: |
+              $CLIENT.messages.create(..., messages=$MSGS, ...)
+          - pattern: |
+              {"role": "user", "content": $SINK}
+
+  # --- Django → OpenAI/Anthropic ---
+  - id: code-prompt-injection-taint-django
+    mode: taint
+    message: >
+      Unsanitized Django request data flows to LLM API call.
+      This enables prompt injection attacks.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: critical
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: >
+        Validate Django request data with Django Forms or serializers
+        before including in LLM prompts.
+    pattern-sources:
+      - pattern-either:
+          - pattern: request.POST[...]
+          - pattern: request.POST.get(...)
+          - pattern: request.GET[...]
+          - pattern: request.GET.get(...)
+          - pattern: request.body
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: sanitize_prompt(...)
+          - pattern: validate_input(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.chat.completions.create(..., messages=$MSGS, ...)
+          - pattern: |
+              $CLIENT.messages.create(..., messages=$MSGS, ...)
+          - pattern: |
+              {"role": "user", "content": $SINK}
+
+  # --- JavaScript/TypeScript: Express → OpenAI ---
+  - id: code-prompt-injection-taint-express
+    mode: taint
+    message: >
+      Unsanitized Express.js request data flows to OpenAI API call.
+      This enables prompt injection attacks.
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      check_id: code-prompt-injection-risk
+      whitney_severity: critical
+      soc2_controls: ["CC6.1", "CC7.2"]
+      remediation: >
+        Validate and sanitize req.body/req.query before including in
+        LLM prompts. Use input validation middleware.
+    pattern-sources:
+      - pattern-either:
+          - pattern: req.body.$FIELD
+          - pattern: req.query.$FIELD
+          - pattern: req.params.$FIELD
+          - pattern: req.body
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: sanitize(...)
+          - pattern: validator.escape(...)
+          - pattern: DOMPurify.sanitize(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.chat.completions.create({..., messages: $MSGS, ...})
+          - pattern: |
+              {role: "user", content: $SINK}
+          - pattern: |
+              {"role": "user", "content": $SINK}

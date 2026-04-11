@@ -1,19 +1,18 @@
 rules:
-  - id: code-no-fallback-handler
+  - id: code-no-fallback-handler-openai
     patterns:
       - pattern-either:
           - pattern: $CLIENT.chat.completions.create(...)
-          - pattern: $CLIENT.messages.create(...)
-          - pattern: $CLIENT.invoke(...)
+          - pattern: $CLIENT.completions.create(...)
       - pattern-not-inside: |
           try:
               ...
           except ...:
               ...
     message: >
-      AI API call is not wrapped in try/except error handling. AI API calls
+      OpenAI API call is not wrapped in try/except error handling. API calls
       can fail due to rate limits, timeouts, or service outages. Add fallback
-      behavior.
+      behaviour.
     severity: INFO
     languages: [python]
     metadata:
@@ -21,3 +20,44 @@ rules:
       whitney_severity: low
       soc2_controls: ["CC7.2", "CC7.5"]
       remediation: "Wrap AI API calls in try/except blocks with fallback behaviour for timeouts and rate limits."
+
+  - id: code-no-fallback-handler-anthropic
+    patterns:
+      - pattern: $CLIENT.messages.create(...)
+      - pattern-not-inside: |
+          try:
+              ...
+          except ...:
+              ...
+    message: >
+      Anthropic API call is not wrapped in try/except error handling. Add
+      fallback behaviour for rate limits, timeouts, and overloaded errors.
+    severity: INFO
+    languages: [python]
+    metadata:
+      check_id: code-no-fallback-handler
+      whitney_severity: low
+      soc2_controls: ["CC7.2", "CC7.5"]
+      remediation: "Wrap Anthropic API calls in try/except with fallback for overloaded_error and rate_limit_error."
+
+  - id: code-no-fallback-handler-langchain
+    patterns:
+      - pattern-either:
+          - pattern: $CHAIN.invoke(...)
+          - pattern: $LLM.invoke(...)
+          - pattern: $CHAIN.run(...)
+      - pattern-not-inside: |
+          try:
+              ...
+          except ...:
+              ...
+    message: >
+      LangChain invoke/run call is not wrapped in error handling. Chain
+      failures can cascade. Add retry logic or fallback.
+    severity: INFO
+    languages: [python]
+    metadata:
+      check_id: code-no-fallback-handler
+      whitney_severity: low
+      soc2_controls: ["CC7.2", "CC7.5"]
+      remediation: "Wrap LangChain invoke/run calls in try/except with retry or fallback behaviour."

@@ -1,11 +1,9 @@
 rules:
-  - id: code-ai-logging-insufficient
+  - id: code-ai-logging-insufficient-openai
     patterns:
       - pattern-either:
           - pattern: $CLIENT.chat.completions.create(...)
-          - pattern: $CLIENT.messages.create(...)
-          - pattern: $CLIENT.invoke(...)
-          - pattern: $CHAIN.invoke(...)
+          - pattern: $CLIENT.completions.create(...)
       - pattern-not-inside: |
           logger.info(...)
           ...
@@ -18,14 +16,116 @@ rules:
       - pattern-not-inside: |
           ...
           logging.info(...)
+      - pattern-not-inside: |
+          logger.debug(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logger.debug(...)
+      - pattern-not-inside: |
+          print(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          print(...)
     message: >
-      AI API call without apparent logging nearby. AI interactions should be
-      logged for observability and audit. Add logging capturing request
-      metadata, response status, latency, and token usage.
+      OpenAI API call without apparent logging nearby. AI interactions should
+      be logged for observability and audit.
     severity: WARNING
     languages: [python]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/tests/**"
     metadata:
       check_id: code-ai-logging-insufficient
       whitney_severity: medium
       soc2_controls: ["CC7.2", "CC7.3"]
       remediation: "Add logging around AI API calls capturing: request metadata, response status, latency, and token usage."
+
+  - id: code-ai-logging-insufficient-anthropic
+    patterns:
+      - pattern: $CLIENT.messages.create(...)
+      - pattern-not-inside: |
+          logger.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logger.info(...)
+      - pattern-not-inside: |
+          logging.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logging.info(...)
+      - pattern-not-inside: |
+          logger.debug(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logger.debug(...)
+      - pattern-not-inside: |
+          print(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          print(...)
+    message: >
+      Anthropic API call without apparent logging nearby. AI interactions
+      should be logged for observability and audit.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/tests/**"
+    metadata:
+      check_id: code-ai-logging-insufficient
+      whitney_severity: medium
+      soc2_controls: ["CC7.2", "CC7.3"]
+      remediation: "Add logging around Anthropic API calls capturing: request metadata, response status, latency, and token usage."
+
+  - id: code-ai-logging-insufficient-langchain
+    patterns:
+      - pattern-either:
+          - pattern: $CHAIN.invoke(...)
+          - pattern: $LLM.invoke(...)
+      - pattern-not-inside: |
+          logger.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logger.info(...)
+      - pattern-not-inside: |
+          logging.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logging.info(...)
+      - pattern-not-inside: |
+          logger.debug(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          logger.debug(...)
+      - pattern-not-inside: |
+          print(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          print(...)
+    message: >
+      LangChain invoke call without apparent logging nearby. Chain
+      interactions should be logged. Consider using LangChain callbacks
+      for structured tracing.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/test*"
+        - "**/tests/**"
+    metadata:
+      check_id: code-ai-logging-insufficient
+      whitney_severity: medium
+      soc2_controls: ["CC7.2", "CC7.3"]
+      remediation: "Add logging or LangChain callbacks for observability. Capture chain inputs, outputs, and latency."

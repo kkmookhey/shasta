@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from shasta.compliance._status import apply_control_status
 from shasta.compliance.framework import SOC2_CONTROLS, get_controls_for_check
 from shasta.evidence.models import Finding
 
@@ -61,17 +62,4 @@ def get_control_summary(findings: list[Finding]) -> dict[str, dict]:
                 case "partial":
                     summary[ctrl_id]["partial_count"] += 1
 
-    # Determine overall status per control
-    for ctrl_id, data in summary.items():
-        if data["fail_count"] > 0:
-            data["overall_status"] = "fail"
-        elif data["partial_count"] > 0:
-            data["overall_status"] = "partial"
-        elif data["pass_count"] > 0:
-            data["overall_status"] = "pass"
-        elif data["requires_policy"] and not data["has_automated_checks"]:
-            data["overall_status"] = "requires_policy"
-        else:
-            data["overall_status"] = "not_assessed"
-
-    return summary
+    return apply_control_status(summary)

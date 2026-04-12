@@ -51,8 +51,13 @@ ML_BUCKET_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-def run_all_aws_ai_checks(client: AWSClient) -> list[Finding]:
-    """Run all 15 AWS AI security checks and return findings."""
+def run_full_aws_ai_scan(client: AWSClient) -> list[Finding]:
+    """Run all 15 AWS AI security checks and return findings.
+
+    Named to match Shasta's ``run_full_scan`` convention. The former name
+    ``run_all_aws_ai_checks`` was renamed on 2026-04-11 — update any caller
+    that still uses the old spelling.
+    """
     findings: list[Finding] = []
     account_id = client.account_info.account_id if client.account_info else "unknown"
     region = client.account_info.region if client.account_info else "us-east-1"

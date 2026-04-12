@@ -21,8 +21,13 @@ from shasta.evidence.models import (
 logger = logging.getLogger(__name__)
 
 
-def run_all_azure_ai_checks(client: AzureClient) -> list[Finding]:
-    """Run all 15 Azure AI security checks and return findings."""
+def run_full_azure_ai_scan(client: AzureClient) -> list[Finding]:
+    """Run all 15 Azure AI security checks and return findings.
+
+    Named to match Shasta's ``run_full_scan`` convention. The former name
+    ``run_all_azure_ai_checks`` was renamed on 2026-04-11 — update any
+    caller that still uses the old spelling.
+    """
     findings: list[Finding] = []
     sub_id = client.account_info.subscription_id if client.account_info else "unknown"
     region = client.account_info.region if client.account_info else "unknown"

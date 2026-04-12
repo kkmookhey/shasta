@@ -4,6 +4,83 @@ All notable changes to Shasta are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] — 2026-04-11 — Prod-scan bug sweep
+
+Five bugs surfaced during a live SOC 2 / ISO 27001 / HIPAA / Whitney scan
+against a production AWS account on 2026-04-11. All in-repo, code-level
+issues are fixed in this release. Bugs #7 (Semgrep hook telemetry noise)
+and #8 (STS credential expiry) are operational / out-of-repo and tracked
+separately.
+
+### Fixed
+- **Bug #2 — Scanner enrichment depended on `framework` flag.**
+  `run_full_scan(framework='hipaa')` previously enriched only HIPAA
+  mappings, leaving `soc2_controls` and `details['iso27001_controls']`
+  empty on every finding. Sequential scans with different `framework`
+  values produced inconsistent finding shapes that broke cross-framework
+  analysis in the dashboard. The scanner now always enriches all three
+  frameworks; the `framework` parameter is informational only.
+  (`src/shasta/scanner.py`)
+- **Bug #4 — Whitney cloud scan function naming.** Renamed
+  `run_all_aws_ai_checks` → `run_full_aws_ai_scan` and
+  `run_all_azure_ai_checks` → `run_full_azure_ai_scan` to match Shasta's
+  `run_full_scan` convention. Doc + skill callers updated. No alias —
+  this is a deliberate, hard rename. (`src/whitney/cloud/aws_checks.py`,
+  `src/whitney/cloud/azure_checks.py`, `.claude/skills/ai-scan/SKILL.md`,
+  `src/whitney/README.md`)
+- **Bug #6 — Dashboard double-launch crashed silently.** Running
+  `py -m shasta.dashboard` twice in the same shell hit
+  `[Errno 10048]` deep inside uvicorn after the startup banner had
+  already printed. The entry point now probes the port first, emits a
+  rich-formatted error pointing to the existing instance, and exits with
+  status 2. Adds `--host` and `--port` CLI flags so a second instance
+  can run on a different port. (`src/shasta/dashboard/__main__.py`)
+- **Bug #9 — SOC 2 score regressed between identical scan runs.**
+  A control with `requires_policy=True` and `has_automated_checks=False`
+  was flipping from `requires_policy` to `fail` the moment a single
+  failing finding was tagged to it, even though the framework defines
+  it as policy-only. Two identical scans produced different scores
+  because heuristic check_id → control mappings vary slightly between
+  runs. Policy-only controls now stay at `requires_policy` regardless
+  of ad-hoc finding tags; controls with automated checks still fail
+  normally. (`src/shasta/compliance/_status.py`,
+  `src/shasta/compliance/mapper.py`,
+  `src/shasta/compliance/hipaa_mapper.py`,
+  `src/shasta/compliance/iso27001_mapper.py`)
+
+### Added
+- **Bug #5 — HIPAA policy templates.** New module
+  `src/shasta/policies/hipaa_generator.py` adds six HIPAA-specific
+  policy templates that previously had no equivalent in the SOC 2
+  generator: Breach Notification Procedure (§ 164.402–164.408),
+  Business Associate Management (§ 164.308(b)(1), § 164.314(a)),
+  Workforce Security Awareness and Training (§ 164.308(a)(5)),
+  Security Management Process (§ 164.308(a)(1)), Minimum Necessary
+  Access (§ 164.502(b), § 164.514(d)), Contingency Plan
+  (§ 164.308(a)(7)). Mirrors the Whitney AI policy generator pattern.
+  Exposes `generate_hipaa_policy`, `generate_all_hipaa_policies`,
+  `list_hipaa_policies`.
+- **Cross-framework status walker** at
+  `src/shasta/compliance/_status.py` — single source of truth for
+  control `overall_status` decisions. Replaces 12 lines of identical
+  copy-pasted logic in three mappers (engineering principle #7:
+  cross-cutting walkers beat per-N code).
+
+### Tests
+- `tests/test_compliance/test_scanner_enrichment.py` — 5 parametrized
+  tests asserting `run_full_scan` enriches all three frameworks for
+  every value of `framework`.
+- `tests/test_compliance/test_status_walker.py` — 8 tests covering the
+  policy-only stability rule, partial/pass/fail precedence, and
+  byte-identical reruns on identical input.
+- `tests/test_compliance/test_hipaa_generator.py` — 11 tests asserting
+  exactly 6 templates exist, each is non-stub (≥500 chars, ≥4 sections),
+  every template renders with company name and at least one of its
+  declared HIPAA citations. Catches "no stub" violations at PR time.
+
+Total new tests: 24. Compliance suite goes 60 → 89, all green. Smoke +
+Whitney suites unchanged (603 passing).
+
 ## [1.6.0] — 2026-04-09 — AWS-to-Azure parity sweep (Stage 1 + Stage 2)
 
 Two stages of an explicit parity sweep against the Azure scanner. Stage 1

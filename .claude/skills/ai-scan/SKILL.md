@@ -31,16 +31,16 @@ try:
     cfg = load_config()
     if cfg.get('aws_profile'):
         from shasta.config import get_aws_client
-        from whitney.cloud.aws_checks import run_all_aws_ai_checks
+        from whitney.cloud.aws_checks import run_full_aws_ai_scan
         client = get_aws_client()
         client.validate_credentials()
-        cloud_findings.extend(run_all_aws_ai_checks(client))
+        cloud_findings.extend(run_full_aws_ai_scan(client))
     if cfg.get('azure_subscription_id'):
         from shasta.config import get_azure_client
-        from whitney.cloud.azure_checks import run_all_azure_ai_checks
+        from whitney.cloud.azure_checks import run_full_azure_ai_scan
         azure_client = get_azure_client()
         azure_client.validate_credentials()
-        cloud_findings.extend(run_all_azure_ai_checks(azure_client))
+        cloud_findings.extend(run_full_azure_ai_scan(azure_client))
 except Exception as e:
     print(f'Cloud scan note: {e}')
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from shasta.compliance.mapper import enrich_findings_with_controls
 from shasta.evidence.models import CheckDomain, CloudProvider, Finding, ScanResult
 
 # Domains where AWS checks are global (not per-region)
@@ -29,7 +28,7 @@ def run_full_scan(
     azure_client: Any = None,
     domains: list[CheckDomain] | None = None,
     regions: list[str] | None = None,
-    framework: str = "soc2",  # "soc2", "iso27001", or "both"
+    framework: str = "soc2",  # informational only — enrichment always runs for all frameworks
     include_github: bool = False,
     github_token: str | None = None,
     github_repos: list[str] | None = None,
@@ -106,18 +105,20 @@ def run_full_scan(
 
         scan.findings.extend(run_github_checks(github_token, github_repos))
 
-    # Enrich findings with compliance framework mappings
-    # "both" = SOC 2 + ISO 27001 (backward compat), "all" = all frameworks
-    if framework in ("soc2", "both", "all"):
-        enrich_findings_with_controls(scan.findings)
-    if framework in ("iso27001", "both", "all"):
-        from shasta.compliance.iso27001_mapper import enrich_findings_with_iso27001
+    # Enrich findings with ALL compliance framework mappings, regardless of
+    # the `framework` parameter. The parameter selects which scorer/report
+    # to emit downstream, not which enrichments run — otherwise sequential
+    # scans with different framework flags produce inconsistent finding
+    # shapes and downstream consumers see empty control lists. The parameter
+    # is kept in the signature only to signal intent to the caller; the
+    # values "soc2" / "iso27001" / "hipaa" / "both" / "all" are all accepted.
+    from shasta.compliance.hipaa_mapper import enrich_findings_with_hipaa
+    from shasta.compliance.iso27001_mapper import enrich_findings_with_iso27001
+    from shasta.compliance.mapper import enrich_findings_with_controls
 
-        enrich_findings_with_iso27001(scan.findings)
-    if framework in ("hipaa", "all"):
-        from shasta.compliance.hipaa_mapper import enrich_findings_with_hipaa
-
-        enrich_findings_with_hipaa(scan.findings)
+    enrich_findings_with_controls(scan.findings)
+    enrich_findings_with_iso27001(scan.findings)
+    enrich_findings_with_hipaa(scan.findings)
 
     # Store multi-cloud info in scan details if both providers scanned
     if client is not None and azure_client is not None:

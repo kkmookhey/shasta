@@ -219,11 +219,11 @@ for f in findings:
 
 ```python
 from shasta.config import get_aws_client
-from whitney.cloud.aws_checks import run_all_aws_ai_checks
+from whitney.cloud.aws_checks import run_full_aws_ai_scan
 
 client = get_aws_client()
 client.validate_credentials()
-findings = run_all_aws_ai_checks(client)
+findings = run_full_aws_ai_scan(client)
 
 for f in findings:
     print(f"[{f.status.value.upper()}] {f.check_id}: {f.title}")
@@ -233,11 +233,11 @@ for f in findings:
 
 ```python
 from shasta.config import get_azure_client
-from whitney.cloud.azure_checks import run_all_azure_ai_checks
+from whitney.cloud.azure_checks import run_full_azure_ai_scan
 
 client = get_azure_client()
 client.validate_credentials()
-findings = run_all_azure_ai_checks(client)
+findings = run_full_azure_ai_scan(client)
 
 for f in findings:
     print(f"[{f.status.value.upper()}] {f.check_id}: {f.title}")
@@ -278,8 +278,8 @@ print(f"Combined:   {score.combined_score}% (Grade {score.combined_grade})")
 from pathlib import Path
 from shasta.config import get_aws_client, get_azure_client
 from whitney.code.scanner import scan_repository
-from whitney.cloud.aws_checks import run_all_aws_ai_checks
-from whitney.cloud.azure_checks import run_all_azure_ai_checks
+from whitney.cloud.aws_checks import run_full_aws_ai_scan
+from whitney.cloud.azure_checks import run_full_azure_ai_scan
 from whitney.compliance.mapper import enrich_findings_with_ai_controls
 from whitney.compliance.scorer import calculate_ai_governance_score
 
@@ -289,11 +289,11 @@ findings = scan_repository(Path("."))
 # Cloud scans
 aws = get_aws_client()
 aws.validate_credentials()
-findings.extend(run_all_aws_ai_checks(aws))
+findings.extend(run_full_aws_ai_scan(aws))
 
 azure = get_azure_client()
 azure.validate_credentials()
-findings.extend(run_all_azure_ai_checks(azure))
+findings.extend(run_full_azure_ai_scan(azure))
 
 # Score
 enrich_findings_with_ai_controls(findings)

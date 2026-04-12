@@ -28,6 +28,9 @@ infra/test-env/data/
 .vscode/
 .idea/
 
+# Local research artifacts
+ai-security-vendor-landscape.docx
+
 # OS
 .DS_Store
 Thumbs.db

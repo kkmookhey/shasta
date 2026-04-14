@@ -1,6 +1,6 @@
 """Tests for NIST AI RMF framework definitions."""
 
-from whitney.compliance.nist_ai_rmf import (
+from shasta.compliance.ai.nist_ai_rmf import (
     NIST_AI_RMF_CATEGORIES,
     NISTAIRMFCategory,
     get_nist_ai_rmf_category,

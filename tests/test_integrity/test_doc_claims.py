@@ -314,15 +314,13 @@ def test_readme_test_count_in_tree_block() -> None:
     )
 
 
-def test_readme_ai_check_count() -> None:
-    """The 'X AI checks (N code + ...)' row must match Whitney's check_* count."""
-    assert_claim(
-        README,
-        r"(\d+) AI checks \(",
-        actual=whitney_check_count(),
-        description="Whitney check_* function count",
-        tolerance=2,
-    )
+# test_readme_ai_check_count removed in 2026-04-13 split — the legacy
+# "51 AI checks (20 code + 15 AWS + 15 Azure + SBOM)" row in README.md
+# was driven by the deleted ALL_CHECKS list of Python check functions.
+# Post-rebuild, the AI governance row is descriptive narrative, and the
+# AI cloud checks (Bedrock, SageMaker, Azure OpenAI, Azure ML) live
+# under shasta.aws.ai_checks / shasta.azure.ai_checks where they're
+# already counted by shasta_check_count() in the TL;DR row.
 
 
 def test_readme_terraform_template_breakdown() -> None:
@@ -374,26 +372,13 @@ WHITNEY_TRUST = REPO_ROOT / "src" / "whitney" / "TRUST.md"
 ROOT_TRUST = REPO_ROOT / "TRUST.md"
 
 
-def test_whitney_readme_test_count() -> None:
-    """Whitney README's 'X tests' status line must match collected Whitney tests."""
-    assert_claim(
-        WHITNEY_README,
-        r"\[x\]\s+(\d+)\s+tests?\b",
-        actual=whitney_collected_count(),
-        description="tests/test_whitney/ collected count",
-        tolerance=10,
-    )
-
-
-def test_whitney_trust_unit_test_count() -> None:
-    """Whitney TRUST.md 'Whitney unit tests: X' summary must match reality."""
-    assert_claim(
-        WHITNEY_TRUST,
-        r"Whitney unit tests:\s+(\d+)",
-        actual=whitney_collected_count(),
-        description="Whitney unit-test collected count",
-        tolerance=10,
-    )
+# test_whitney_readme_test_count + test_whitney_trust_unit_test_count
+# removed in 2026-04-13 split — src/whitney/README.md and TRUST.md are
+# being retired. The Whitney code scanner has its own README at
+# src/whitney/code/README.md (no numeric claims) and is moving to a
+# standalone repo on Day 2 of the split. The umbrella docs at
+# src/whitney/{README,TRUST}.md are kept as historical artifacts only
+# and are not tested for drift.
 
 
 # ---------------------------------------------------------------------------

@@ -31,13 +31,13 @@ try:
     cfg = load_config()
     if cfg.get('aws_profile'):
         from shasta.config import get_aws_client
-        from whitney.cloud.aws_checks import run_full_aws_ai_scan
+        from shasta.aws.ai_checks import run_full_aws_ai_scan
         client = get_aws_client()
         client.validate_credentials()
         cloud_findings.extend(run_full_aws_ai_scan(client))
     if cfg.get('azure_subscription_id'):
         from shasta.config import get_azure_client
-        from whitney.cloud.azure_checks import run_full_azure_ai_scan
+        from shasta.azure.ai_checks import run_full_azure_ai_scan
         azure_client = get_azure_client()
         azure_client.validate_credentials()
         cloud_findings.extend(run_full_azure_ai_scan(azure_client))
@@ -47,11 +47,11 @@ except Exception as e:
 all_findings = code_findings + cloud_findings
 
 # Enrich with AI compliance frameworks
-from whitney.compliance.mapper import enrich_findings_with_ai_controls
+from shasta.compliance.ai.mapper import enrich_findings_with_ai_controls
 enrich_findings_with_ai_controls(all_findings)
 
 # Score
-from whitney.compliance.scorer import calculate_ai_governance_score
+from shasta.compliance.ai.scorer import calculate_ai_governance_score
 score = calculate_ai_governance_score(all_findings)
 
 # Summary

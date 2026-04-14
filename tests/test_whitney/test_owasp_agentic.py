@@ -1,6 +1,6 @@
 """Tests for OWASP Agentic AI Top 10 framework definitions."""
 
-from whitney.compliance.owasp_agentic import (
+from shasta.compliance.ai.owasp_agentic import (
     OWASP_AGENTIC_TOP10,
     OWASPAgenticRisk,
     get_owasp_agentic_risk,

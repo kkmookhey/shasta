@@ -1,6 +1,6 @@
 """Tests for OWASP LLM Top 10 v2.0 framework definitions."""
 
-from whitney.compliance.owasp_llm_top10 import (
+from shasta.compliance.ai.owasp_llm_top10 import (
     OWASP_LLM_TOP10,
     OWASPLLMRisk,
     get_owasp_llm_risk,

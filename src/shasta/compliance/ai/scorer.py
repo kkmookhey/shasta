@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from shasta.evidence.models import Finding
-from whitney.compliance.mapper import (
+from shasta.compliance.ai.mapper import (
     get_eu_ai_act_obligation_summary,
     get_iso42001_control_summary,
     get_mitre_atlas_summary,

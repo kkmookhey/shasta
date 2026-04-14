@@ -19,9 +19,9 @@ Semgrep architecture), see [`src/whitney/TRUST.md`](./src/whitney/TRUST.md).
 
 Shasta and Whitney together ship the following, all integrity-tested:
 
-- **241 check functions** (190 cloud compliance + 51 AI governance)
+- **221 check functions** (220 cloud compliance + 1 AI governance entry point — Whitney `scan_repository`)
 - **112 Terraform remediation templates** (81 AWS + 31 Azure)
-- **739 tests** that all pass on every commit
+- **537 tests** that all pass on every commit
 
 None of the claims in this README are written by hand and hoped-for —
 every numeric claim is AST-counted from source by an integrity test
@@ -96,24 +96,24 @@ py -3.12 -m pytest tests/test_whitney/test_integrity.py -v
 
 ### Layer 1 — Test suite
 
-**684 tests** across `tests/`, all green on every commit. Breakdown:
+**537 tests** across `tests/`, all green on every commit. Breakdown:
 
 | Suite | Tests | What it covers |
 |---|---|---|
-| `tests/test_whitney/` | 446 | Whitney AI scanner: patterns, code checks, scorer, mapper, policies, SBOM, integrity, semgrep runner, NIST AI 600-1 |
+| `tests/test_whitney/` | 220 | AI compliance frameworks (ISO 42001, EU AI Act, OWASP LLM Top 10, OWASP Agentic, NIST AI RMF, NIST AI 600-1, MITRE ATLAS), AI policies, AI SBOM, mapper + scorer, integrity, Whitney code scanner corpus |
 | `tests/test_aws/` | 108 | AWS smoke tests: imports, runner signatures, multi-region structural enforcement, Terraform template renders, deprecated runtime tables, VPC endpoint expectations |
 | `tests/test_azure/` | 58 | Azure smoke tests: imports, runner signatures, diagnostic settings matrix, Defender required plans, CIS 5.2.x activity log alert mappings, Terraform template renders, Entra ID checks |
 | `tests/test_compliance/` | 21 | SOC 2 + ISO 27001 scorer + mapper |
 | `tests/test_workflows/` | 26 | Risk register + drift detection workflows |
 | `tests/test_integrity/` | 11 | **Doc-vs-code drift** — see Layer 2 |
 | `tests/test_reports/` | 13 | Markdown / HTML / PDF report generation |
-| Other | ~31 | Conftest, models, client, fixtures |
+| Other | ~80 | Conftest, models, client, AWS/Azure unit fixtures |
 
 **Run them yourself:**
 
 ```bash
 py -3.12 -m pytest --ignore=tests/test_rainier
-# 684 passed in ~2 minutes
+# 537 passed in ~2 minutes
 ```
 
 The full suite runs on every PR via

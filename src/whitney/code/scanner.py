@@ -57,7 +57,7 @@ def scan_repository(repo_path: Path | str) -> list[Finding]:
     # on each finding's check_id. The compliance mapper is the single
     # source of truth for the check_id → framework mapping.
     try:
-        from whitney.compliance.mapper import enrich_findings_with_ai_controls
+        from shasta.compliance.ai.mapper import enrich_findings_with_ai_controls
 
         enrich_findings_with_ai_controls(findings)
     except ImportError as exc:

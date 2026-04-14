@@ -19,7 +19,7 @@ Read `shasta.config.json` for `python_cmd`, `aws_profile`, `azure_subscription_i
 <PYTHON_CMD> -c "
 import json
 from shasta.config import get_aws_client
-from whitney.discovery.aws_ai import discover_aws_ai_services
+from shasta.aws.ai_discovery import discover_aws_ai_services
 
 client = get_aws_client()
 client.validate_credentials()
@@ -33,7 +33,7 @@ print(json.dumps(result, indent=2, default=str))
 <PYTHON_CMD> -c "
 import json
 from shasta.config import get_azure_client
-from whitney.discovery.azure_ai import discover_azure_ai_services
+from shasta.azure.ai_discovery import discover_azure_ai_services
 
 client = get_azure_client()
 client.validate_credentials()

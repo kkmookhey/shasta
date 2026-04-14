@@ -1,6 +1,6 @@
 """Tests for ISO 42001 AI management system control definitions."""
 
-from whitney.compliance.iso42001 import (
+from shasta.compliance.ai.iso42001 import (
     ISO42001_CONTROLS,
     ISO42001Control,
     get_iso42001_control,

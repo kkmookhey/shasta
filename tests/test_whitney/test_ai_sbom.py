@@ -324,7 +324,7 @@ class TestGenerateAISBOM:
 class TestScanAWSComponents:
     """Test AWS AI component discovery with mocked discovery."""
 
-    @patch("whitney.discovery.aws_ai.discover_aws_ai_services")
+    @patch("shasta.aws.ai_discovery.discover_aws_ai_services")
     def test_bedrock_models(self, mock_discover):
         mock_discover.return_value = {
             "bedrock": {
@@ -341,7 +341,7 @@ class TestScanAWSComponents:
         assert components[0].component_type == AIComponentType.CLOUD_SERVICE
         assert components[0].ecosystem == "aws"
 
-    @patch("whitney.discovery.aws_ai.discover_aws_ai_services")
+    @patch("shasta.aws.ai_discovery.discover_aws_ai_services")
     def test_sagemaker_endpoints(self, mock_discover):
         mock_discover.return_value = {
             "bedrock": {"foundation_models": []},
@@ -359,7 +359,7 @@ class TestScanAWSComponents:
 class TestScanAzureComponents:
     """Test Azure AI component discovery with mocked discovery."""
 
-    @patch("whitney.discovery.azure_ai.discover_azure_ai_services")
+    @patch("shasta.azure.ai_discovery.discover_azure_ai_services")
     def test_openai_deployments(self, mock_discover):
         mock_discover.return_value = {
             "azure_openai": {

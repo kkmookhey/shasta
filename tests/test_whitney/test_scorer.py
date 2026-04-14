@@ -5,7 +5,7 @@ Mirrors the structure of tests/test_compliance/test_scorer.py.
 
 import pytest
 
-from whitney.compliance.scorer import (
+from shasta.compliance.ai.scorer import (
     AIGovernanceScore,
     calculate_ai_governance_score,
     _score_to_grade,

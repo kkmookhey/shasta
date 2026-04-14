@@ -24,28 +24,39 @@ import pytest
 
 
 class TestModulesExistAndHaveCode:
-    """Every Whitney subpackage must have real Python files with real functions."""
+    """Every AI subpackage must have real Python files with real functions.
+
+    Post-split (2026-04-13): code scanner + SBOM live under whitney.* (and
+    will move to a standalone repo on Day 2). Cloud AI checks, discovery,
+    compliance frameworks, and policies have moved into shasta.* alongside
+    the existing SOC 2 / ISO 27001 plumbing.
+    """
 
     @pytest.mark.parametrize(
         "module_path",
         [
+            # Whitney code scanner — Semgrep-based, will become standalone
             "whitney.code.scanner",
-            "whitney.code.checks",
-            "whitney.code.patterns",
-            "whitney.cloud.aws_checks",
-            "whitney.cloud.azure_checks",
-            "whitney.discovery.aws_ai",
-            "whitney.discovery.azure_ai",
-            "whitney.compliance.iso42001",
-            "whitney.compliance.eu_ai_act",
-            "whitney.compliance.owasp_llm_top10",
-            "whitney.compliance.owasp_agentic",
-            "whitney.compliance.nist_ai_rmf",
-            "whitney.compliance.mitre_atlas",
-            "whitney.compliance.mapper",
-            "whitney.compliance.scorer",
-            "whitney.policies.generator",
+            "whitney.code.semgrep_runner",
+            "whitney.code.llm_triage",
             "whitney.sbom.scanner",
+            # Cloud AI checks (now shasta.*)
+            "shasta.aws.ai_checks",
+            "shasta.azure.ai_checks",
+            "shasta.aws.ai_discovery",
+            "shasta.azure.ai_discovery",
+            # AI compliance frameworks (now shasta.compliance.ai.*)
+            "shasta.compliance.ai.iso42001",
+            "shasta.compliance.ai.eu_ai_act",
+            "shasta.compliance.ai.owasp_llm_top10",
+            "shasta.compliance.ai.owasp_agentic",
+            "shasta.compliance.ai.nist_ai_rmf",
+            "shasta.compliance.ai.nist_ai_600_1",
+            "shasta.compliance.ai.mitre_atlas",
+            "shasta.compliance.ai.mapper",
+            "shasta.compliance.ai.scorer",
+            # AI policies
+            "shasta.policies.ai_policies",
         ],
     )
     def test_module_imports_and_has_content(self, module_path):
@@ -63,23 +74,28 @@ class TestModulesExistAndHaveCode:
 
 
 class TestNoEmptyStubDirectories:
-    """Every Whitney subdirectory must contain at least one .py file with content beyond __init__.py."""
+    """Every AI subdirectory must contain real Python files (not stubs).
+
+    Post-split (2026-04-13): code + sbom under src/whitney/, cloud AI +
+    AI compliance + AI policies under src/shasta/.
+    """
 
     @pytest.mark.parametrize(
-        "subdir",
-        ["code", "cloud", "discovery", "compliance", "policies", "sbom"],
+        "rel_dir",
+        [
+            "src/whitney/code",
+            "src/whitney/sbom",
+            "src/shasta/compliance/ai",
+        ],
     )
-    def test_subdir_has_real_code(self, subdir):
-        whitney_root = Path("src/whitney") / subdir
-        py_files = [
-            f for f in whitney_root.glob("*.py") if f.name != "__init__.py"
-        ]
+    def test_subdir_has_real_code(self, rel_dir):
+        d = Path(rel_dir)
+        py_files = [f for f in d.glob("*.py") if f.name != "__init__.py"]
         assert len(py_files) >= 1, (
-            f"src/whitney/{subdir}/ has no .py files besides __init__.py — empty stub"
+            f"{rel_dir}/ has no .py files besides __init__.py — empty stub"
         )
         for py_file in py_files:
             content = py_file.read_text(encoding="utf-8")
-            # Must have more than just a docstring — real code (def, class, or data assignments)
             has_code = "def " in content or "class " in content or " = " in content
             assert has_code, (
                 f"{py_file} has no functions, classes, or data — empty stub"
@@ -91,62 +107,42 @@ class TestNoEmptyStubDirectories:
 # ---------------------------------------------------------------------------
 
 
-class TestCodeCheckCounts:
-    """README claims 20 code checks — verify."""
-
-    def test_all_checks_list_has_20(self):
-        from whitney.code.checks import ALL_CHECKS
-
-        assert len(ALL_CHECKS) == 20, (
-            f"README claims 20 code checks but ALL_CHECKS has {len(ALL_CHECKS)}"
-        )
-
-    def test_each_check_is_callable(self):
-        from whitney.code.checks import ALL_CHECKS
-
-        for check_fn in ALL_CHECKS:
-            assert callable(check_fn), f"{check_fn} is not callable"
-
-    def test_each_check_returns_list_on_empty_repo(self, tmp_path):
-        from whitney.code.checks import ALL_CHECKS
-
-        for check_fn in ALL_CHECKS:
-            result = check_fn(tmp_path)
-            assert isinstance(result, list), (
-                f"{check_fn.__name__} doesn't return a list"
-            )
+# TestCodeCheckCounts removed in 2026-04-13 rebuild — the legacy
+# ALL_CHECKS list of 20 Python check functions was replaced by
+# Semgrep rule files. Per-rule counting now lives in the corpus eval
+# harness (tests/test_whitney/corpus/eval.py), not in integrity tests.
 
 
 class TestComplianceFrameworkCounts:
     """Verify each framework has the claimed number of items."""
 
     def test_iso42001_has_11_controls(self):
-        from whitney.compliance.iso42001 import ISO42001_CONTROLS
+        from shasta.compliance.ai.iso42001 import ISO42001_CONTROLS
 
         assert len(ISO42001_CONTROLS) == 11
 
     def test_eu_ai_act_has_8_obligations(self):
-        from whitney.compliance.eu_ai_act import EU_AI_ACT_OBLIGATIONS
+        from shasta.compliance.ai.eu_ai_act import EU_AI_ACT_OBLIGATIONS
 
         assert len(EU_AI_ACT_OBLIGATIONS) == 8
 
     def test_owasp_llm_has_10_risks(self):
-        from whitney.compliance.owasp_llm_top10 import OWASP_LLM_TOP10
+        from shasta.compliance.ai.owasp_llm_top10 import OWASP_LLM_TOP10
 
         assert len(OWASP_LLM_TOP10) == 10
 
     def test_owasp_agentic_has_10_risks(self):
-        from whitney.compliance.owasp_agentic import OWASP_AGENTIC_TOP10
+        from shasta.compliance.ai.owasp_agentic import OWASP_AGENTIC_TOP10
 
         assert len(OWASP_AGENTIC_TOP10) == 10
 
     def test_nist_ai_rmf_has_19_categories(self):
-        from whitney.compliance.nist_ai_rmf import NIST_AI_RMF_CATEGORIES
+        from shasta.compliance.ai.nist_ai_rmf import NIST_AI_RMF_CATEGORIES
 
         assert len(NIST_AI_RMF_CATEGORIES) == 19
 
     def test_mitre_atlas_has_15_techniques(self):
-        from whitney.compliance.mitre_atlas import ATLAS_TECHNIQUES
+        from shasta.compliance.ai.mitre_atlas import ATLAS_TECHNIQUES
 
         assert len(ATLAS_TECHNIQUES) == 15
 
@@ -155,12 +151,12 @@ class TestPolicyCounts:
     """README claims 7 AI governance policies — verify."""
 
     def test_policies_dict_has_7(self):
-        from whitney.policies.generator import POLICIES
+        from shasta.policies.ai_policies import POLICIES
 
         assert len(POLICIES) == 7
 
     def test_all_policies_render(self):
-        from whitney.policies.generator import generate_policy, POLICIES
+        from shasta.policies.ai_policies import generate_policy, POLICIES
 
         for policy_id in POLICIES:
             result = generate_policy(policy_id, company_name="IntegrityTest")
@@ -195,7 +191,7 @@ class TestScorerProducesAllFrameworks:
     """The scorer must produce scores for every framework we claim to support."""
 
     def test_score_has_all_framework_fields(self):
-        from whitney.compliance.scorer import calculate_ai_governance_score
+        from shasta.compliance.ai.scorer import calculate_ai_governance_score
 
         score = calculate_ai_governance_score([])
 
@@ -234,7 +230,7 @@ class TestMapperEnrichesAllFrameworks:
         from shasta.evidence.models import ComplianceStatus
 
         from tests.test_whitney.conftest import _make_finding
-        from whitney.compliance.mapper import enrich_findings_with_ai_controls
+        from shasta.compliance.ai.mapper import enrich_findings_with_ai_controls
 
         findings = [
             _make_finding("code-prompt-injection-risk", ComplianceStatus.FAIL)
@@ -259,7 +255,7 @@ class TestCloudCheckFunctionsExist:
     """Verify the claimed 15 AWS + 15 Azure check functions actually exist."""
 
     def test_aws_has_15_checks(self):
-        from whitney.cloud import aws_checks
+        from shasta.aws import ai_checks as aws_checks
 
         check_fns = [
             name
@@ -271,7 +267,7 @@ class TestCloudCheckFunctionsExist:
         )
 
     def test_azure_has_15_checks(self):
-        from whitney.cloud import azure_checks
+        from shasta.azure import ai_checks as azure_checks
 
         check_fns = [
             name

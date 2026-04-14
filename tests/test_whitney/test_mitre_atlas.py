@@ -1,6 +1,6 @@
 """Tests for MITRE ATLAS framework definitions."""
 
-from whitney.compliance.mitre_atlas import (
+from shasta.compliance.ai.mitre_atlas import (
     ATLAS_TECHNIQUES,
     ATLASTechnique,
     get_atlas_technique,

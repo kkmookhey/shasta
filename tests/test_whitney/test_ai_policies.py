@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from whitney.policies.generator import (
+from shasta.policies.ai_policies import (
     POLICIES,
     generate_policy,
     generate_all_policies,

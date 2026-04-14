@@ -1,6 +1,6 @@
 """Tests for EU AI Act obligation framework definitions."""
 
-from whitney.compliance.eu_ai_act import (
+from shasta.compliance.ai.eu_ai_act import (
     EU_AI_ACT_OBLIGATIONS,
     EUAIActObligation,
     get_eu_ai_act_obligation,

@@ -162,8 +162,8 @@ class TestComplianceScoringValidation:
     @pytest.fixture(autouse=True)
     def scan_and_score(self):
         from whitney.code.scanner import scan_repository
-        from whitney.compliance.mapper import enrich_findings_with_ai_controls
-        from whitney.compliance.scorer import calculate_ai_governance_score
+        from shasta.compliance.ai.mapper import enrich_findings_with_ai_controls
+        from shasta.compliance.ai.scorer import calculate_ai_governance_score
 
         self.findings = scan_repository(VULN_APP_PATH)
         enrich_findings_with_ai_controls(self.findings)
@@ -204,7 +204,7 @@ class TestPolicyGenerationValidation:
     """Validate AI policy generation."""
 
     def test_generates_all_7_policies(self, tmp_path):
-        from whitney.policies.generator import generate_all_policies
+        from shasta.policies.ai_policies import generate_all_policies
 
         paths = generate_all_policies(company_name="TestCorp", output_path=tmp_path)
         assert len(paths) == 7
@@ -215,7 +215,7 @@ class TestPolicyGenerationValidation:
             assert content.startswith("# ")
 
     def test_list_policies_metadata(self):
-        from whitney.policies.generator import list_policies
+        from shasta.policies.ai_policies import list_policies
 
         policies = list_policies()
         assert len(policies) == 7

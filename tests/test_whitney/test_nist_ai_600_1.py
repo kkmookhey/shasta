@@ -1,6 +1,6 @@
 """Tests for NIST AI 600-1 Generative AI Profile framework definitions."""
 
-from whitney.compliance.nist_ai_600_1 import (
+from shasta.compliance.ai.nist_ai_600_1 import (
     NIST_AI_600_1_RISKS,
     NISTAI6001Risk,
     get_automated_nist_ai_600_1_risks,

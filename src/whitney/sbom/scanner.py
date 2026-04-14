@@ -17,21 +17,181 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
-from whitney.code.checks import (
-    _iter_files,
-    _parse_package_json,
-    _parse_pyproject_toml,
-    _parse_requirements_txt,
-    _read_file,
-    _version_matches_constraint,
+# ---------------------------------------------------------------------------
+# Self-contained file/parsing helpers and constants.
+#
+# These were previously imported from whitney.code.checks and
+# whitney.code.patterns, both of which were deleted in the 2026-04-13
+# Whitney rebuild (commit 0d7946d). Inlining them here makes the SBOM
+# scanner self-contained and ready for the Day 2 move into the standalone
+# Whitney repo with zero external dependencies.
+# ---------------------------------------------------------------------------
+
+MAX_FILE_SIZE_BYTES = 1_000_000
+
+EXCLUDED_PATH_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "node_modules", ".git", "__pycache__", ".venv", "venv",
+        ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
+        ".egg-info", ".eggs",
+    }
 )
-from whitney.code.patterns import (
-    EXCLUDED_PATH_SEGMENTS,
-    GENERIC_MODEL_NAMES,
-    PINNED_MODEL_PATTERN,
-    SOURCE_CODE_EXTENSIONS,
-    VULNERABLE_SDK_VERSIONS,
+
+SOURCE_CODE_EXTENSIONS: frozenset[str] = frozenset(
+    {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb"}
 )
+
+ALL_SCANNABLE_EXTENSIONS: frozenset[str] = SOURCE_CODE_EXTENSIONS | frozenset(
+    {".yaml", ".yml", ".json", ".toml", ".cfg", ".ini",
+     ".txt", ".md", ".env", ".sh", ".bash"}
+)
+
+# Vulnerable SDK versions for SBOM vulnerability checks.
+VULNERABLE_SDK_VERSIONS: dict[str, list[dict[str, str]]] = {
+    "langchain": [
+        {
+            "constraint": "< 0.0.325",
+            "cve": "CVE-2023-46229",
+            "description": "Arbitrary code execution via prompt injection in PALChain",
+        },
+    ],
+    "openai": [
+        {
+            "constraint": "< 1.0.0",
+            "cve": "N/A",
+            "description": "Pre-1.0 SDK has deprecated API patterns and lacks safety defaults",
+        },
+    ],
+    "transformers": [
+        {
+            "constraint": "< 4.36.0",
+            "cve": "CVE-2023-49810",
+            "description": "Unsafe pickle deserialization in model loading",
+        },
+    ],
+}
+
+# Generic (unpinned) model name patterns for the model-version SBOM check.
+GENERIC_MODEL_NAMES: list[re.Pattern[str]] = [
+    re.compile(r"""model\s*=\s*["']gpt-4["']"""),
+    re.compile(r"""model\s*=\s*["']gpt-3\.5-turbo["']"""),
+    re.compile(r"""model\s*=\s*["']gpt-4-turbo["']"""),
+    re.compile(r"""model\s*=\s*["']gpt-4o["']"""),
+    re.compile(r"""model\s*=\s*["']claude-3-opus["']"""),
+    re.compile(r"""model\s*=\s*["']claude-3-sonnet["']"""),
+    re.compile(r"""model\s*=\s*["']claude-3-haiku["']"""),
+]
+
+# Models with date suffixes (gpt-4-0613, claude-3-5-sonnet-20240620) are pinned.
+PINNED_MODEL_PATTERN: re.Pattern[str] = re.compile(
+    r"""model\s*=\s*["'][a-z0-9-]+-\d{4,8}["']"""
+)
+
+
+def _iter_files(
+    repo_path: Path,
+    extensions: frozenset[str] | None = None,
+    include_hidden_env: bool = False,
+) -> list[Path]:
+    """Walk *repo_path* and yield files matching *extensions*."""
+    if extensions is None:
+        extensions = ALL_SCANNABLE_EXTENSIONS
+    files: list[Path] = []
+    for path in repo_path.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(seg in path.parts for seg in EXCLUDED_PATH_SEGMENTS):
+            continue
+        try:
+            if path.stat().st_size > MAX_FILE_SIZE_BYTES:
+                continue
+        except OSError:
+            continue
+        suffix = path.suffix.lower()
+        if suffix in extensions:
+            files.append(path)
+        elif (
+            include_hidden_env
+            and path.name.startswith(".env")
+            and not path.name.endswith(".example")
+        ):
+            files.append(path)
+    return files
+
+
+def _read_file(path: Path) -> str | None:
+    """Read file contents, returning None on encoding errors."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _parse_requirements_txt(content: str) -> dict[str, str]:
+    """Extract package==version pairs from requirements.txt."""
+    deps: dict[str, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        for sep in ("==", ">=", "<=", "~=", "!="):
+            if sep in line:
+                name, version = line.split(sep, 1)
+                deps[name.strip().lower()] = (
+                    version.strip().split(",")[0].split(";")[0].strip()
+                )
+                break
+    return deps
+
+
+def _parse_pyproject_toml(content: str) -> dict[str, str]:
+    """Best-effort extraction of dependencies from pyproject.toml."""
+    deps: dict[str, str] = {}
+    for m in re.finditer(
+        r'"([a-zA-Z0-9_-]+)\s*([><=!~]+)\s*([0-9][0-9a-zA-Z.]*)"', content
+    ):
+        deps[m.group(1).lower()] = m.group(3)
+    return deps
+
+
+def _parse_package_json(content: str) -> dict[str, str]:
+    """Best-effort extraction of dependencies from package.json."""
+    import json as _json
+
+    deps: dict[str, str] = {}
+    try:
+        data = _json.loads(content)
+    except _json.JSONDecodeError:
+        return deps
+    for section in ("dependencies", "devDependencies"):
+        for name, version in data.get(section, {}).items():
+            clean = re.sub(r"^[^0-9]*", "", version)
+            if clean:
+                deps[name.lower()] = clean
+    return deps
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for p in version.split("."):
+        num = re.match(r"(\d+)", p)
+        if num:
+            parts.append(int(num.group(1)))
+        else:
+            break
+    return tuple(parts)
+
+
+def _version_matches_constraint(version_str: str, constraint: str) -> bool:
+    """Check if *version_str* matches a simple '< X.Y.Z' constraint."""
+    m = re.match(r"<\s*([0-9][0-9a-zA-Z.]*)", constraint)
+    if not m:
+        return False
+    threshold = m.group(1)
+    try:
+        return _version_tuple(version_str) < _version_tuple(threshold)
+    except (ValueError, TypeError):
+        return False
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -235,7 +395,7 @@ def scan_aws_for_ai_components(client: object) -> list[AIComponent]:
     Delegates to ``discover_aws_ai_services()`` and transforms the
     results into AIComponent objects.
     """
-    from whitney.discovery.aws_ai import discover_aws_ai_services
+    from shasta.aws.ai_discovery import discover_aws_ai_services
 
     inventory = discover_aws_ai_services(client)  # type: ignore[arg-type]
     components: list[AIComponent] = []
@@ -314,7 +474,7 @@ def scan_azure_for_ai_components(client: object) -> list[AIComponent]:
     Delegates to ``discover_azure_ai_services()`` and transforms the
     results into AIComponent objects.
     """
-    from whitney.discovery.azure_ai import discover_azure_ai_services
+    from shasta.azure.ai_discovery import discover_azure_ai_services
 
     inventory = discover_azure_ai_services(client)  # type: ignore[arg-type]
     components: list[AIComponent] = []

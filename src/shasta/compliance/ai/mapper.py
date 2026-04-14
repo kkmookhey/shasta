@@ -3,31 +3,31 @@
 from __future__ import annotations
 
 from shasta.evidence.models import Finding
-from whitney.compliance.eu_ai_act import (
+from shasta.compliance.ai.eu_ai_act import (
     EU_AI_ACT_OBLIGATIONS,
     get_eu_ai_act_obligations_for_check,
 )
-from whitney.compliance.iso42001 import (
+from shasta.compliance.ai.iso42001 import (
     ISO42001_CONTROLS,
     get_iso42001_controls_for_check,
 )
-from whitney.compliance.mitre_atlas import (
+from shasta.compliance.ai.mitre_atlas import (
     ATLAS_TECHNIQUES,
     get_atlas_techniques_for_check,
 )
-from whitney.compliance.nist_ai_600_1 import (
+from shasta.compliance.ai.nist_ai_600_1 import (
     NIST_AI_600_1_RISKS,
     get_nist_ai_600_1_risks_for_check,
 )
-from whitney.compliance.nist_ai_rmf import (
+from shasta.compliance.ai.nist_ai_rmf import (
     NIST_AI_RMF_CATEGORIES,
     get_nist_ai_rmf_categories_for_check,
 )
-from whitney.compliance.owasp_agentic import (
+from shasta.compliance.ai.owasp_agentic import (
     OWASP_AGENTIC_TOP10,
     get_owasp_agentic_risks_for_check,
 )
-from whitney.compliance.owasp_llm_top10 import (
+from shasta.compliance.ai.owasp_llm_top10 import (
     OWASP_LLM_TOP10,
     get_owasp_llm_risks_for_check,
 )

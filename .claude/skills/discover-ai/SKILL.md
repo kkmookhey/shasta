@@ -44,17 +44,19 @@ print(json.dumps(result, indent=2, default=str))
 
 ### 2. Scan GitHub repos for AI usage
 
-If `github_repos` is configured in `shasta.config.json`:
+Whitney is the standalone source-code scanner, shipped at
+[github.com/transilienceai/whitney](https://github.com/transilienceai/whitney).
+Install with `pip install whitney-scanner` if it is not already present.
+
 ```bash
+whitney scan . --json > /tmp/whitney-findings.json 2>/dev/null || echo '[]' > /tmp/whitney-findings.json
 <PYTHON_CMD> -c "
 import json
-from whitney.code.scanner import scan_repository
-from pathlib import Path
-
-findings = scan_repository(Path('.'))  # Scan current project
-for f in findings:
-    print(f'[{f.severity.value.upper()}] {f.check_id}: {f.title}')
-print(f'\nTotal: {len(findings)} finding(s)')
+data = json.load(open('/tmp/whitney-findings.json'))
+for f in data:
+    sev = (f.get('severity') or 'info').upper()
+    print(f'[{sev}] {f.get(\"check_id\")}: {f.get(\"title\")}')
+print(f'\nTotal: {len(data)} finding(s)')
 "
 ```
 

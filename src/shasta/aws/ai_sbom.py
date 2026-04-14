@@ -1,4 +1,4 @@
-"""AI SBOM (Model Bill of Materials) scanner.
+"""Shasta AI SBOM (Model Bill of Materials) scanner.
 
 Discovers AI components across code repositories and cloud environments,
 outputting a CycloneDX 1.5 JSON inventory of AI SDKs, models, and services.
@@ -20,8 +20,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Self-contained file/parsing helpers and constants.
 #
-# These were previously imported from whitney.code.checks and
-# whitney.code.patterns, both of which were deleted in the 2026-04-13
+# These were previously imported from the legacy whitney.code.checks and whitney.code.patterns modules, both of which were deleted in the 2026-04-13
 # Whitney rebuild (commit 0d7946d). Inlining them here makes the SBOM
 # scanner self-contained and ready for the Day 2 move into the standalone
 # Whitney repo with zero external dependencies.

@@ -472,9 +472,16 @@ def test_root_trust_integrity_test_count() -> None:
 
 
 def test_counters_return_positive_numbers() -> None:
-    """Sanity check that the AST counters and registry imports actually work."""
+    """Sanity check that the AST counters and registry imports actually work.
+
+    ``whitney_check_count`` is no longer asserted non-zero: the Whitney
+    code scanner lives in a separate repo
+    (github.com/transilienceai/whitney) and src/whitney/ has been
+    deleted from Shasta. The helper is kept for the root-TRUST TL;DR
+    breakdown, where it returns 0.
+    """
     assert shasta_check_count() > 0
-    assert whitney_check_count() > 0
+    assert whitney_check_count() == 0  # Whitney lives in a standalone repo
     assert finding_to_risk_count() > 0
     assert total_terraform_template_count() > 0
     assert policy_template_count() == 8

@@ -19,9 +19,9 @@ Semgrep architecture), see [`src/whitney/TRUST.md`](./src/whitney/TRUST.md).
 
 Shasta and Whitney together ship the following, all integrity-tested:
 
-- **221 check functions** (220 cloud compliance + 1 AI governance entry point — Whitney `scan_repository`)
+- **221 check functions** (221 cloud compliance + 0 AI governance — Whitney now ships as a separate repo at [github.com/transilienceai/whitney](https://github.com/transilienceai/whitney); install with `pip install whitney-scanner` for source-code scanning)
 - **112 Terraform remediation templates** (81 AWS + 31 Azure)
-- **537 tests** that all pass on every commit
+- **519 tests** that all pass on every commit
 
 None of the claims in this README are written by hand and hoped-for —
 every numeric claim is AST-counted from source by an integrity test
@@ -96,11 +96,11 @@ py -3.12 -m pytest tests/test_whitney/test_integrity.py -v
 
 ### Layer 1 — Test suite
 
-**537 tests** across `tests/`, all green on every commit. Breakdown:
+**519 tests** across `tests/`, all green on every commit. Breakdown:
 
 | Suite | Tests | What it covers |
 |---|---|---|
-| `tests/test_whitney/` | 220 | AI compliance frameworks (ISO 42001, EU AI Act, OWASP LLM Top 10, OWASP Agentic, NIST AI RMF, NIST AI 600-1, MITRE ATLAS), AI policies, AI SBOM, mapper + scorer, integrity, Whitney code scanner corpus |
+| `tests/test_whitney/` | 205 | AI compliance frameworks (ISO 42001, EU AI Act, OWASP LLM Top 10, OWASP Agentic, NIST AI RMF, NIST AI 600-1, MITRE ATLAS), AI policies, AI SBOM (code + AWS + Azure), mapper + scorer, integrity. The Whitney corpus eval lives in the standalone Whitney repo. |
 | `tests/test_aws/` | 108 | AWS smoke tests: imports, runner signatures, multi-region structural enforcement, Terraform template renders, deprecated runtime tables, VPC endpoint expectations |
 | `tests/test_azure/` | 58 | Azure smoke tests: imports, runner signatures, diagnostic settings matrix, Defender required plans, CIS 5.2.x activity log alert mappings, Terraform template renders, Entra ID checks |
 | `tests/test_compliance/` | 21 | SOC 2 + ISO 27001 scorer + mapper |

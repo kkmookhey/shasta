@@ -2,13 +2,41 @@
 
 **An AI-native compliance toolkit that enables startup founders to achieve and maintain SOC 2, ISO 27001, HIPAA, ISO 42001, and EU AI Act compliance across AWS and Azure — through conversation, not dashboards.**
 
-Shasta scans your cloud infrastructure for SOC 2, ISO 27001, HIPAA, ISO 42001, EU AI Act, OWASP LLM Top 10 and more. The standalone Whitney static scanner (separate repo) handles application source-code prompt-injection detection. Together, they cover 13 compliance frameworks, 221 automated checks, and 199 security questionnaire answers — with a web dashboard, 112 Terraform remediation templates, and auditor-grade evidence. Built for founders running <50 employee companies who need compliance without the $30K/year Vanta bill.
+Shasta scans your cloud infrastructure for SOC 2, ISO 27001, HIPAA, ISO 42001, EU AI Act, OWASP LLM Top 10 and more. The standalone Whitney static scanner ([github.com/transilienceai/whitney](https://github.com/transilienceai/whitney)) handles application source-code prompt-injection detection. Together, they cover 13 compliance frameworks, 221 automated checks, and 199 security questionnaire answers — with a web dashboard, 112 Terraform remediation templates, and auditor-grade evidence. Built for founders running <50 employee companies who need compliance without the $30K/year Vanta bill.
 
 > **Three load-bearing artifacts at the repo root, in order of what to read:**
 > [`README.md`](./README.md) (this file — what it does) →
 > [`TRUST.md`](./TRUST.md) (how to verify the claims yourself) →
 > [`ENGINEERING_PRINCIPLES.md`](./ENGINEERING_PRINCIPLES.md) (how the codebase is built and held together).
 > Each is self-tested by the integrity suite in `tests/test_integrity/`.
+
+---
+
+## Sibling project — Whitney static scanner
+
+Whitney is Shasta's sibling open-source tool, shipped at
+[**github.com/transilienceai/whitney**](https://github.com/transilienceai/whitney).
+It is a pure static AI security scanner (prompt injection across 15 source
+types, broken LLM-as-judge detection, AI dependency SBOM) and installs
+as `pip install whitney-scanner`.
+
+The two tools are complementary:
+
+| | Whitney | Shasta |
+|---|---|---|
+| **What** | Scan application source code | Scan cloud environments + compliance reporting |
+| **Detection** | Semgrep ruleset + opt-in LLM triage | AWS/Azure SDK calls, compliance mappings |
+| **Findings carry** | CWE + OWASP LLM Top 10 + OWASP Agentic | SOC 2 + ISO 27001 + HIPAA + ISO 42001 + EU AI Act controls |
+| **Audience** | ML engineers, AI app devs, security researchers | Founders, compliance buyers, SOC 2 auditors |
+| **Runtime deps** | `semgrep` only (+ optional `anthropic` for triage) | `boto3`, `azure-*`, `pydantic`, `jinja2` |
+| **Install** | `pip install whitney-scanner` | `pip install -e .` from this repo |
+
+Shasta's `/ai-scan` and `/ai-code-review` skills shell out to the
+installed `whitney` CLI for source-code findings, then enrich the JSON
+output with Shasta's ISO 42001 / EU AI Act / NIST AI RMF / MITRE ATLAS
+compliance mappings before scoring and reporting. If Whitney isn't
+installed, the code-scan step returns an empty list and the cloud scan
+continues normally.
 
 ---
 
@@ -737,7 +765,7 @@ shasta/
 │   └── azure-test-env/                    # Azure test environment
 │       └── main.tf                        # Azure test resources (compliant + non-compliant)
 │
-├── tests/                                 # pytest test suite (530+ tests)
+├── tests/                                 # pytest test suite (515+ tests)
 │   ├── conftest.py
 │   ├── test_aws/
 │   │   ├── test_client.py                 # AWS client tests (moto)

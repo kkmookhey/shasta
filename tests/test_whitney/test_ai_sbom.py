@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from whitney.sbom.scanner import (
+from shasta.aws.ai_sbom import (
     AIComponent,
     AIComponentType,
     AISBOMReport,

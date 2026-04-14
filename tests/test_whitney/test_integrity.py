@@ -35,11 +35,10 @@ class TestModulesExistAndHaveCode:
     @pytest.mark.parametrize(
         "module_path",
         [
-            # Whitney code scanner — Semgrep-based, will become standalone
-            "whitney.code.scanner",
-            "whitney.code.semgrep_runner",
-            "whitney.code.llm_triage",
-            "whitney.sbom.scanner",
+            # Whitney code scanner is now a standalone repo
+            # (github.com/transilienceai/whitney, pip install whitney-scanner).
+            # Nothing under src/whitney/ in Shasta anymore.
+            "shasta.aws.ai_sbom",
             # Cloud AI checks (now shasta.*)
             "shasta.aws.ai_checks",
             "shasta.azure.ai_checks",
@@ -83,8 +82,6 @@ class TestNoEmptyStubDirectories:
     @pytest.mark.parametrize(
         "rel_dir",
         [
-            "src/whitney/code",
-            "src/whitney/sbom",
             "src/shasta/compliance/ai",
         ],
     )
@@ -173,7 +170,7 @@ class TestSBOMProducesOutput:
 
     def test_code_scan_produces_cyclonedx(self, tmp_path):
         from tests.test_whitney.conftest import write_file
-        from whitney.sbom.scanner import scan_ai_sbom_code_only
+        from shasta.aws.ai_sbom import scan_ai_sbom_code_only
 
         write_file(tmp_path, "requirements.txt", "openai==1.3.0\n")
         result = scan_ai_sbom_code_only(tmp_path)

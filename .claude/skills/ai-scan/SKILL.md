@@ -14,17 +14,46 @@ Read `shasta.config.json` for `python_cmd`, `aws_profile`, `azure_subscription_i
 
 ### Run AI governance scan
 
+Whitney (the code scanner) ships as a separate open-source tool at
+[github.com/transilienceai/whitney](https://github.com/transilienceai/whitney).
+If it isn't installed yet, run `pip install whitney-scanner` first.
+This skill shells out to the `whitney` CLI for source-code findings
+and imports the Shasta cloud AI checks directly for cloud findings.
+
 ```bash
+# 1. Run the Whitney static scanner against the current repo.
+whitney scan . --json > /tmp/whitney-findings.json 2>/dev/null || \
+    echo '[]' > /tmp/whitney-findings.json
+
+# 2. Run Shasta cloud AI checks + enrich everything with compliance frameworks.
 <PYTHON_CMD> -c "
 import json
 from pathlib import Path
-from shasta.evidence.models import ComplianceStatus
+from shasta.evidence.models import (
+    CheckDomain, ComplianceStatus, Finding, Severity,
+)
 
-# Code checks (always run — scans current directory)
-from whitney.code.scanner import scan_repository
-code_findings = scan_repository(Path('.'))
+# --- Code findings: parse Whitney JSON into Shasta Finding objects ---
+code_findings = []
+raw = json.loads(Path('/tmp/whitney-findings.json').read_text())
+for r in raw:
+    code_findings.append(Finding(
+        check_id=r['check_id'],
+        title=r['title'],
+        description=r.get('description', ''),
+        severity=Severity(r['severity']),
+        status=ComplianceStatus.FAIL,
+        domain=CheckDomain.AI_GOVERNANCE,
+        resource_type=r.get('resource_type', 'Code::Repository::File'),
+        resource_id=r.get('resource_id', ''),
+        region=r.get('region', 'code'),
+        account_id=r.get('account_id', 'code-scan'),
+        remediation=r.get('remediation', ''),
+        soc2_controls=r.get('soc2_controls', []) or [],
+        details=r.get('details', {}) or {},
+    ))
 
-# Cloud checks (if configured)
+# --- Cloud checks (if configured) ---
 cloud_findings = []
 try:
     from shasta.config import load_config
@@ -46,7 +75,9 @@ except Exception as e:
 
 all_findings = code_findings + cloud_findings
 
-# Enrich with AI compliance frameworks
+# Enrich with AI compliance frameworks (ISO 42001, EU AI Act, NIST AI RMF,
+# MITRE ATLAS) — Whitney only ships CWE + OWASP LLM Top 10 + OWASP Agentic
+# natively; the regulatory frameworks are added here by Shasta.
 from shasta.compliance.ai.mapper import enrich_findings_with_ai_controls
 enrich_findings_with_ai_controls(all_findings)
 

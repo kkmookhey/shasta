@@ -1,0 +1,109 @@
+name: Bug report
+description: Report a bug in Shasta or Whitney
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out the
+        sections below so we can reproduce and fix the issue quickly.
+
+        For **security vulnerabilities**, do not use this form — email
+        `contact@transilience.ai` per [`SECURITY.md`](../blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Shasta is affected?
+      options:
+        - AWS check module (src/shasta/aws/**)
+        - Azure check module (src/shasta/azure/**)
+        - Whitney code scanner (src/whitney/code/**)
+        - Whitney cloud scanner (src/whitney/cloud/**)
+        - Compliance framework / scoring
+        - Remediation templates
+        - Policy generator
+        - Dashboard
+        - Claude Code skill (.claude/skills/**)
+        - Docs
+        - CI / build
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: affected_module
+    attributes:
+      label: Affected module or file
+      description: If you know it, paste the file path (e.g. `src/shasta/aws/iam.py`).
+      placeholder: src/shasta/aws/iam.py
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: What happened? What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps a maintainer can follow.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: bug_type
+    attributes:
+      label: Bug type
+      options:
+        - False positive (check flagged something that is compliant)
+        - False negative (check missed something that is non-compliant)
+        - Crash / unhandled exception
+        - Incorrect output / wrong framework mapping
+        - Performance regression
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, Shasta version, cloud region / subscription if relevant.
+      value: |
+        - OS:
+        - Python version:
+        - Shasta version (`pip show shasta | grep Version`):
+        - AWS region / Azure subscription:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or traceback
+      description: Paste any error output here. Redact secrets before submitting.
+      render: shell

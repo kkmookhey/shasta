@@ -1,10 +1,24 @@
-# Shasta + Whitney — Multi-Cloud Compliance & AI Governance Platform
+<div align="center">
+
+# Shasta + Whitney
+
+**Multi-Cloud Compliance & AI Governance, Claude-Native**
+
+AI-native compliance toolkit — SOC 2, ISO 27001, HIPAA, ISO 42001 and EU AI Act
+across AWS and Azure. Through conversation, not dashboards. From the team at [Transilience.ai](https://www.transilience.ai).
 
 [![Built by Transilience](https://img.shields.io/badge/Built%20by-Transilience.ai-4A90D9)](https://www.transilience.ai)
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/transilienceai/shasta)](https://github.com/transilienceai/shasta/stargazers)
+[![CI](https://github.com/transilienceai/shasta/actions/workflows/integrity.yml/badge.svg)](https://github.com/transilienceai/shasta/actions/workflows/integrity.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub stars](https://img.shields.io/github/stars/transilienceai/shasta?style=social)](https://github.com/transilienceai/shasta/stargazers)
+[![Powered by Claude](https://img.shields.io/badge/Powered%20by-Claude-8A2BE2)](https://claude.com/claude-code)
 
-**An AI-native compliance toolkit that enables startup founders to achieve and maintain SOC 2, ISO 27001, HIPAA, ISO 42001, and EU AI Act compliance across AWS and Azure — through conversation, not dashboards. From the team at [Transilience.ai](https://www.transilience.ai).**
+[Quick Start](#quick-start) · [Skills Reference](#skills-reference) · [Architecture](#architecture) · [TRUST](./TRUST.md) · [Principles](./ENGINEERING_PRINCIPLES.md) · [Contributing](./CONTRIBUTING.md)
+
+</div>
+
+---
 
 Shasta scans your cloud infrastructure for SOC 2, ISO 27001, HIPAA, ISO 42001, EU AI Act, OWASP LLM Top 10 and more. The standalone Whitney static scanner ([github.com/transilienceai/whitney](https://github.com/transilienceai/whitney)) handles application source-code prompt-injection detection. Together, they cover 13 compliance frameworks, 221 automated checks, and 199 security questionnaire answers — with a web dashboard, 112 Terraform remediation templates, and auditor-grade evidence. Built for founders running <50 employee companies who need compliance without the $30K/year Vanta bill.
 
@@ -278,9 +292,9 @@ az account show   # Note your subscription_id and tenant_id
 /policy-gen       # Generate 8 SOC 2 policy documents
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the complete setup guide including exact IAM permissions.
+See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for the complete setup guide including exact IAM permissions.
 
-> **You don't need to memorize slash commands.** Shasta and Whitney are AI-native — just describe what you need in plain English inside Claude Code. Say *"Connect to my AWS and run a full SOC 2 gap analysis with remediation Terraform"* and Claude orchestrates everything. See **[CONVERSATIONS.md](CONVERSATIONS.md)** for 15 real conversation examples.
+> **You don't need to memorize slash commands.** Shasta and Whitney are AI-native — just describe what you need in plain English inside Claude Code. Say *"Connect to my AWS and run a full SOC 2 gap analysis with remediation Terraform"* and Claude orchestrates everything. See **[docs/CONVERSATIONS.md](./docs/CONVERSATIONS.md)** for 15 real conversation examples.
 
 ---
 
@@ -689,9 +703,20 @@ At ~860K tokens on Claude Opus across both sessions, the API cost for this entir
 ```
 shasta/
 ├── CLAUDE.md                              # Claude Code project instructions
-├── DEPLOYMENT.md                          # Complete deployment guide
 ├── README.md                              # This file
+├── TRUST.md                               # How to verify the claims
+├── ENGINEERING_PRINCIPLES.md              # Load-bearing contributor rules
+├── CONTRIBUTING.md                        # Contribution workflow
+├── SECURITY.md                            # Vulnerability reporting
+├── CODE_OF_CONDUCT.md                     # Contributor Covenant
+├── CHANGELOG.md                           # Keep-a-Changelog
 ├── pyproject.toml                         # Python project configuration
+│
+├── docs/                                  # Secondary docs
+│   ├── DEPLOYMENT.md                      # Complete deployment guide
+│   ├── VIBE_CODING.md                     # Build-process essay
+│   ├── CONVERSATIONS.md                   # Real conversation examples
+│   └── TRIAGE.md                          # Whitney LLM-as-judge triage guide
 │
 ├── .claude/skills/                        # Claude Code skills (auto-discovered)
 │   ├── connect-aws/SKILL.md               # AWS connection and validation
@@ -769,7 +794,7 @@ shasta/
 │   └── azure-test-env/                    # Azure test environment
 │       └── main.tf                        # Azure test resources (compliant + non-compliant)
 │
-├── tests/                                 # pytest test suite (515+ tests)
+├── tests/                                 # pytest test suite (500+ tests)
 │   ├── conftest.py
 │   ├── test_aws/
 │   │   ├── test_client.py                 # AWS client tests (moto)
@@ -857,6 +882,17 @@ shasta/
 - [ ] CI/CD compliance gate (fail pipeline if non-compliant)
 - [ ] AI vendor security scorecards (OpenAI, Anthropic, Cohere)
 - [ ] Bias/fairness assessment framework
+
+---
+
+## Contributors
+
+Thanks to everyone who has contributed checks, framework mappings,
+remediation templates, skills, or docs to Shasta + Whitney.
+
+[![Contributors](https://contrib.rocks/image?repo=transilienceai/shasta)](https://github.com/transilienceai/shasta/graphs/contributors)
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) to get started.
 
 ---
 

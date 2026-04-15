@@ -1,6 +1,10 @@
 # Shasta + Whitney — Multi-Cloud Compliance & AI Governance Platform
 
-**An AI-native compliance toolkit that enables startup founders to achieve and maintain SOC 2, ISO 27001, HIPAA, ISO 42001, and EU AI Act compliance across AWS and Azure — through conversation, not dashboards.**
+[![Built by Transilience](https://img.shields.io/badge/Built%20by-Transilience.ai-4A90D9)](https://www.transilience.ai)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/transilienceai/shasta)](https://github.com/transilienceai/shasta/stargazers)
+
+**An AI-native compliance toolkit that enables startup founders to achieve and maintain SOC 2, ISO 27001, HIPAA, ISO 42001, and EU AI Act compliance across AWS and Azure — through conversation, not dashboards. From the team at [Transilience.ai](https://www.transilience.ai).**
 
 Shasta scans your cloud infrastructure for SOC 2, ISO 27001, HIPAA, ISO 42001, EU AI Act, OWASP LLM Top 10 and more. The standalone Whitney static scanner ([github.com/transilienceai/whitney](https://github.com/transilienceai/whitney)) handles application source-code prompt-injection detection. Together, they cover 13 compliance frameworks, 221 automated checks, and 199 security questionnaire answers — with a web dashboard, 112 Terraform remediation templates, and auditor-grade evidence. Built for founders running <50 employee companies who need compliance without the $30K/year Vanta bill.
 
@@ -863,3 +867,7 @@ MIT License. See `LICENSE`.
 ---
 
 *Built with Claude Code (Opus 4.6) across two sessions (~7 hours total). The entire multi-cloud compliance platform — from architecture to deployment to independent audit and hardening — was created through human-AI collaboration, demonstrating that vibe coding can produce production-quality security tooling when guided by domain expertise. The self-audit pattern (asking the AI to critique its own work) proved essential in both sessions for catching real bugs and preventing false confidence.*
+
+---
+
+Built by [Transilience.ai](https://www.transilience.ai) — we build AI-driven cloud security and compliance automation. See our other open-source tools: [communitytools](https://github.com/transilienceai/communitytools) (AI pentesting) · [whitney](https://github.com/transilienceai/whitney) (AI code scanner) · [LinkedIn](https://linkedin.com/company/transilienceai)

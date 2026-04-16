@@ -279,7 +279,7 @@ def check_privileged_roles(client: AzureClient, subscription_id: str, region: st
             )
 
     except Exception as e:
-        if "Authorization" in str(e) or "Forbidden" in str(e):
+        if any(k in str(e) for k in ("Authorization", "Forbidden", "AccessDenied", "403")):
             findings.append(
                 Finding(
                     check_id="azure-privileged-roles",
@@ -478,7 +478,7 @@ def check_inactive_users(client: AzureClient, subscription_id: str, region: str)
             )
 
     except Exception as e:
-        if "Authorization" in str(e) or "Forbidden" in str(e):
+        if any(k in str(e) for k in ("Authorization", "Forbidden", "AccessDenied", "403")):
             findings.append(
                 Finding(
                     check_id="azure-inactive-users",
@@ -565,7 +565,7 @@ def check_guest_access(client: AzureClient, subscription_id: str, region: str) -
             )
 
     except Exception as e:
-        if "Authorization" in str(e) or "Forbidden" in str(e):
+        if any(k in str(e) for k in ("Authorization", "Forbidden", "AccessDenied", "403")):
             findings.append(
                 Finding(
                     check_id="azure-guest-access",
@@ -668,7 +668,7 @@ def check_service_principal_hygiene(
             )
 
     except Exception as e:
-        if "Authorization" in str(e) or "Forbidden" in str(e):
+        if any(k in str(e) for k in ("Authorization", "Forbidden", "AccessDenied", "403")):
             findings.append(
                 Finding(
                     check_id="azure-service-principal-hygiene",
@@ -1014,7 +1014,7 @@ def check_classic_administrators(
         auth = client.mgmt_client(AuthorizationManagementClient)
         classic = list(auth.classic_administrators.list())
     except Exception as e:
-        if "Authorization" in str(e) or "Forbidden" in str(e):
+        if any(k in str(e) for k in ("Authorization", "Forbidden", "AccessDenied", "403")):
             return [
                 _no_permission_finding(
                     "azure-classic-admins",

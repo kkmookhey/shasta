@@ -2,7 +2,37 @@
 name = "shasta"
 version = "1.8.0"
 description = "Multi-cloud compliance and AI governance platform — SOC 2, ISO 27001, HIPAA, ISO 42001, and EU AI Act"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Transilience AI" }]
+keywords = [
+    "compliance",
+    "soc2",
+    "iso27001",
+    "hipaa",
+    "iso42001",
+    "eu-ai-act",
+    "aws",
+    "azure",
+    "security",
+    "cloud-security",
+    "ai-governance",
+    "claude-code",
+    "cspm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = [
     "boto3>=1.35.0",
     "rich>=13.9.0",
@@ -10,6 +40,12 @@ dependencies = [
     "xhtml2pdf>=0.2.17",
     "pydantic>=2.9.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/transilienceai/shasta"
+Repository = "https://github.com/transilienceai/shasta"
+Issues = "https://github.com/transilienceai/shasta/issues"
+Changelog = "https://github.com/transilienceai/shasta/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 azure = [

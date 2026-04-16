@@ -1,0 +1,107 @@
+name: New check proposal
+description: Propose a new compliance check module (AWS or Azure)
+title: "[Check]: "
+labels: ["enhancement", "new-check"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template encodes the rules in
+        [`ENGINEERING_PRINCIPLES.md`](../blob/main/ENGINEERING_PRINCIPLES.md)
+        at the intake stage. Please fill in every field — the form is
+        deliberately opinionated so the PR that implements this check has
+        a clear green path through the integrity tests.
+
+  - type: dropdown
+    id: cloud
+    attributes:
+      label: Cloud
+      options:
+        - AWS
+        - Azure
+        - Both (single check, multi-cloud module)
+    validations:
+      required: true
+
+  - type: input
+    id: service
+    attributes:
+      label: Service or resource
+      description: Which service does this check apply to?
+      placeholder: S3 / Azure Key Vault / RDS / Cosmos DB ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: framework_mapping
+    attributes:
+      label: Framework mapping
+      description: |
+        Which compliance controls does this check satisfy? List ALL that apply.
+        This enforces Principle 4 (frameworks belong on the `Finding` model).
+      value: |
+        - SOC 2 control ID:
+        - CIS AWS / CIS Azure control:
+        - ISO 27001 control:
+        - HIPAA safeguard (if applicable):
+        - MCSB control (Azure only, if applicable):
+    validations:
+      required: true
+
+  - type: dropdown
+    id: detection_approach
+    attributes:
+      label: Detection approach
+      description: How will the check determine compliance?
+      options:
+        - SDK listing (list_* / describe_*)
+        - Resource config lookup (get_*)
+        - Multi-region walker (AWS)
+        - Multi-subscription walker (Azure)
+        - Cross-service walker (see src/shasta/azure/private_endpoints.py for the pattern)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: walker_eligible
+    attributes:
+      label: Walker-eligible?
+      description: |
+        Would this check duplicate logic across 3+ services? If yes, consider
+        writing a walker instead of a per-service function (Principle 7).
+      options:
+        - "No, this is a single-service check"
+        - "Yes, it would be redundant per-service — use a walker"
+        - "Unsure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: multi_region
+    attributes:
+      label: Multi-region / multi-subscription behavior
+      description: |
+        How will this check iterate regions (AWS) or subscriptions (Azure)?
+        Enforces Principle 3 — single-region / single-subscription is never
+        the default.
+    validations:
+      required: true
+
+  - type: textarea
+    id: false_clean_risk
+    attributes:
+      label: False-clean risk
+      description: |
+        What happens on API error, missing permission, or empty results?
+        Enforces Principle 6 — `NOT_ASSESSED` on error, `NOT_APPLICABLE` on
+        legitimately empty, `FAIL` only on actual non-compliance. Describe
+        how each case will be handled.
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: CIS benchmark PDF, vendor docs, CVE, or existing similar check in this repo.

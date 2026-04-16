@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a new feature, framework mapping, or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement. For a **new compliance check
+        module** specifically, please use the "New check proposal" template
+        instead — it encodes the engineering principles at intake.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - New compliance check (use the "New check proposal" template instead)
+        - New framework mapping (e.g. mapping existing checks to a new control)
+        - New Terraform remediation template
+        - New Claude Code skill
+        - Dashboard / reporting improvement
+        - Docs improvement
+        - Developer experience / tooling
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What is the user problem you are trying to solve? Who benefits?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you think about and why did you reject them?
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Contribution willingness
+      description: Are you interested in submitting a PR for this?
+      options:
+        - Yes, I plan to open a PR
+        - Yes, but I would like guidance first
+        - No, I am just suggesting
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

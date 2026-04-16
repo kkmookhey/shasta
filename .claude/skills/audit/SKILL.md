@@ -51,7 +51,7 @@ build-break-shaped principle (#1, #2, #11) fails — those are non-negotiable.
 ### #1 Numbers in docs are tests waiting to be written
 
 - Did the diff add or modify any numeric claim in `README.md`,
-  `CHANGELOG.md`, `src/whitney/README.md`, `src/whitney/TRUST.md`?
+  `CHANGELOG.md`, or `TRUST.md`?
 - If yes: is there a corresponding entry in
   `tests/test_integrity/test_doc_claims.py` that AST-counts the source?
 - If the diff bumped a count in the source (added a check function, added
@@ -179,7 +179,7 @@ build-break-shaped principle (#1, #2, #11) fails — those are non-negotiable.
 ### #17 Historical narrative is sacred
 
 - Did the diff modify any line in `README.md`, `CHANGELOG.md`, or
-  `src/whitney/TRUST.md` that contains `~~strikethrough~~`?
+  `TRUST.md` that contains `~~strikethrough~~`?
 - **FAIL** with a note that historical entries must not be edited;
   add a new entry instead.
 

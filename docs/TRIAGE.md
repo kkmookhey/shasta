@@ -1,5 +1,10 @@
 # Whitney LLM-as-Judge Triage — Operator Guide
 
+> **Note (2026-04-13):** The Whitney code scanner has moved to a standalone
+> repo at [github.com/transilienceai/whitney](https://github.com/transilienceai/whitney).
+> All file paths below (`src/whitney/code/*`) refer to that repo, not Shasta.
+> This document is retained as historical reference.
+
 Whitney's default code scanner is 100% deterministic: Semgrep rules + a thin
 Python wrapper, no LLM calls. This guide covers the **opt-in LLM-as-judge
 triage layer** (`src/whitney/code/llm_triage.py`) that closes one specific

@@ -11,9 +11,79 @@ from pathlib import Path
 
 from jinja2 import Environment, BaseLoader
 
+import html as html_mod
+
 from shasta.compliance.mapper import get_control_summary
 from shasta.compliance.scorer import calculate_score
 from shasta.evidence.models import Finding, ScanResult
+
+# Keys in Finding.details that are framework mappings (already shown elsewhere)
+_FRAMEWORK_KEYS = frozenset({
+    "iso27001_controls", "hipaa_controls", "soc2_controls",
+    "cis_azure_controls", "mcsb_controls", "cis_aws_controls",
+})
+
+
+def _render_details_html(details: dict) -> str:
+    """Render a Finding.details dict as an HTML snippet with tables/lists."""
+    if not details:
+        return ""
+    # Filter out framework mapping keys
+    items = {k: v for k, v in details.items() if k not in _FRAMEWORK_KEYS and v}
+    if not items:
+        return ""
+
+    parts = []
+    for key, value in items.items():
+        label = key.replace("_", " ").title()
+        esc = html_mod.escape
+
+        if isinstance(value, list) and value:
+            if isinstance(value[0], dict):
+                # List of dicts → table
+                headers = list(value[0].keys())
+                header_row = "".join(f"<th>{esc(h.replace('_', ' ').title())}</th>" for h in headers)
+                body_rows = []
+                for row in value:
+                    cells = "".join(
+                        f"<td><code>{esc(str(row.get(h, '')))}</code></td>"
+                        if h in ("app_id", "principal_id", "scope", "expired")
+                        else f"<td>{esc(str(row.get(h, '')))}</td>"
+                        for h in headers
+                    )
+                    body_rows.append(f"<tr>{cells}</tr>")
+                parts.append(
+                    f"<div class='details-section'><strong>{esc(label)}</strong> ({len(value)} items)"
+                    f"<table><thead><tr>{header_row}</tr></thead>"
+                    f"<tbody>{''.join(body_rows)}</tbody></table></div>"
+                )
+            else:
+                # List of scalars → bullet list
+                items_html = "".join(f"<li><code>{esc(str(v))}</code></li>" for v in value)
+                parts.append(
+                    f"<div class='details-section'><strong>{esc(label)}</strong> ({len(value)} items)"
+                    f"<ul>{items_html}</ul></div>"
+                )
+        elif isinstance(value, dict):
+            # Dict → key-value table
+            rows = "".join(
+                f"<tr><td>{esc(str(k))}</td><td><strong>{esc(str(v))}</strong></td></tr>"
+                for k, v in value.items()
+            )
+            parts.append(
+                f"<div class='details-section'><strong>{esc(label)}</strong>"
+                f"<table><tbody>{rows}</tbody></table></div>"
+            )
+        else:
+            # Scalar
+            parts.append(
+                f"<div class='details-section'><strong>{esc(label)}:</strong> "
+                f"<code>{esc(str(value))}</code></div>"
+            )
+
+    if not parts:
+        return ""
+    return f"<div class='finding-details'>{''.join(parts)}</div>"
 
 MARKDOWN_TEMPLATE = """\
 # SOC 2 Compliance Gap Analysis Report
@@ -185,6 +255,10 @@ HTML_TEMPLATE = """\
   .finding-meta { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
   .finding-desc { font-size: 14px; margin-bottom: 8px; }
   .finding-remediation { font-size: 14px; background: #f0fdf4; padding: 10px 12px; border-radius: 6px; border-left: 3px solid var(--pass); }
+  .finding-details { font-size: 13px; margin-top: 10px; background: var(--surface); padding: 12px; border-radius: 6px; border: 1px solid var(--border); }
+  .finding-details .details-section { margin-bottom: 8px; }
+  .finding-details table { font-size: 12px; margin: 4px 0 8px; }
+  .finding-details ul { padding-left: 18px; margin: 4px 0; font-size: 12px; }
   .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
   .tag-critical { background: #fef2f2; color: var(--critical); }
   .tag-high { background: #fff7ed; color: var(--high); }
@@ -246,6 +320,7 @@ HTML_TEMPLATE = """\
   {% if f.remediation %}
   <div class="finding-remediation"><strong>Fix:</strong> {{ f.remediation }}</div>
   {% endif %}
+  {{ render_details(f.details) }}
 </div>
 {% endfor %}
 {% if not critical_high %}
@@ -264,6 +339,7 @@ HTML_TEMPLATE = """\
   {% if f.remediation %}
   <div class="finding-remediation"><strong>Fix:</strong> {{ f.remediation }}</div>
   {% endif %}
+  {{ render_details(f.details) }}
 </div>
 {% endfor %}
 {% if not medium %}
@@ -372,6 +448,7 @@ def _make_jinja_env() -> Environment:
         "info": "ℹ️",
     }.get(s, "")
     env.filters["truncate"] = lambda s, length=60: s[:length] + "..." if len(s) > length else s
+    env.globals["render_details"] = _render_details_html
     return env
 
 

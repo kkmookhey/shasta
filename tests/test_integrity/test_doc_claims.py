@@ -367,18 +367,12 @@ def test_readme_policy_template_count() -> None:
 # ---------------------------------------------------------------------------
 
 
-WHITNEY_README = REPO_ROOT / "src" / "whitney" / "README.md"
-WHITNEY_TRUST = REPO_ROOT / "src" / "whitney" / "TRUST.md"
 ROOT_TRUST = REPO_ROOT / "TRUST.md"
 
-
-# test_whitney_readme_test_count + test_whitney_trust_unit_test_count
-# removed in 2026-04-13 split — src/whitney/README.md and TRUST.md are
-# being retired. The Whitney code scanner has its own README at
-# src/whitney/code/README.md (no numeric claims) and is moving to a
-# standalone repo on Day 2 of the split. The umbrella docs at
-# src/whitney/{README,TRUST}.md are kept as historical artifacts only
-# and are not tested for drift.
+# WHITNEY_README and WHITNEY_TRUST constants removed — src/whitney/README.md
+# and src/whitney/TRUST.md were deleted in the 2026-04-13 Whitney/Shasta
+# split (commit 4873079). Whitney code scanner now lives at
+# github.com/transilienceai/whitney.
 
 
 # ---------------------------------------------------------------------------

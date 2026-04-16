@@ -102,7 +102,7 @@
 <!-- Controls -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
   <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">Mapped Controls</h3>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     {% if soc2_controls %}
     <div>
       <h4 class="text-xs font-medium text-gray-500 mb-2">SOC 2 Controls</h4>
@@ -123,8 +123,18 @@
       </div>
     </div>
     {% endif %}
-    {% if not soc2_controls and not iso_controls %}
-    <p class="text-sm text-gray-400">No control mappings available for this finding.</p>
+    {% if hipaa_controls %}
+    <div>
+      <h4 class="text-xs font-medium text-gray-500 mb-2">HIPAA Controls</h4>
+      <div class="flex flex-wrap gap-2">
+        {% for ctrl in hipaa_controls %}
+        <span class="px-3 py-1 rounded-lg text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200">{{ ctrl }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% if not soc2_controls and not iso_controls and not hipaa_controls %}
+    <p class="text-sm text-gray-400 md:col-span-3">No control mappings available for this finding.</p>
     {% endif %}
   </div>
 </div>

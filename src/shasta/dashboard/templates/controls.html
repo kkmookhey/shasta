@@ -22,6 +22,10 @@
      class="px-5 py-2 rounded-md text-sm font-medium transition-colors {% if framework == 'iso27001' %}bg-white shadow-sm text-indigo-700{% else %}text-gray-600 hover:text-gray-800{% endif %}">
     ISO 27001
   </a>
+  <a href="/controls?framework=hipaa"
+     class="px-5 py-2 rounded-md text-sm font-medium transition-colors {% if framework == 'hipaa' %}bg-white shadow-sm text-indigo-700{% else %}text-gray-600 hover:text-gray-800{% endif %}">
+    HIPAA
+  </a>
 </div>
 
 <!-- Status Summary -->
@@ -133,6 +137,11 @@
     {% if ctrl.get('theme') %}
     <div class="mt-2">
       <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">{{ ctrl.theme }}</span>
+    </div>
+    {% endif %}
+    {% if ctrl.get('safeguard') %}
+    <div class="mt-2">
+      <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">{{ ctrl.safeguard }} Safeguard</span>
     </div>
     {% endif %}
   </div>

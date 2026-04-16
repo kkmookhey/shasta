@@ -12,10 +12,9 @@ Shasta is a Claude Code-native SOC 2 and ISO 27001 compliance platform. It scans
 - `src/shasta/` — cloud compliance library (SOC 2, ISO 27001)
 - `src/shasta/aws/` — AWS check modules (boto3)
 - `src/shasta/azure/` — Azure check modules (azure-mgmt-*, msgraph-sdk)
-- `src/whitney/` — AI governance library (ISO 42001, EU AI Act, NIST AI RMF)
-- `src/whitney/code/` — GitHub code scanning for AI security (prompt injection, PII, keys)
-- `src/whitney/cloud/` — Cloud AI service checks (Bedrock, SageMaker, Azure OpenAI, Azure ML)
-- `src/whitney/compliance/` — ISO 42001 + EU AI Act framework definitions and scoring
+- `src/shasta/compliance/ai/` — AI governance frameworks (ISO 42001, EU AI Act, NIST AI RMF)
+- `src/shasta/aws/ai_checks.py` — AWS AI service checks (Bedrock, SageMaker)
+- `src/shasta/azure/ai_checks.py` — Azure AI service checks (Azure OpenAI, Azure ML)
 - `.claude/skills/` — Claude Code skill definitions
 - `tests/` — pytest test suite (739 tests; uses moto for AWS mocking)
 - `data/` — runtime data (gitignored)
@@ -43,7 +42,7 @@ they are in context at every conversation start:
 
 1. **Numbers in docs are tests waiting to be written.** Every "X checks" /
    "Y templates" / "N tests" claim in `README.md`, `CHANGELOG.md`, or
-   `src/whitney/TRUST.md` must be backed by a test in
+   `TRUST.md` must be backed by a test in
    `tests/test_integrity/test_doc_claims.py` that AST-counts the source.
    Bumping a count in code without updating the doc (or vice versa) must
    fail the build. Lines with `~~strikethrough~~` are skipped — historical

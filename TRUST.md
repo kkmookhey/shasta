@@ -11,7 +11,9 @@ Trust says how you check that we did it.
 
 For the Whitney AI scanner's specific validation story (vulnerability
 fixtures, live cloud validation against AWS + Azure, dual-engine
-Semgrep architecture), see [`src/whitney/TRUST.md`](./src/whitney/TRUST.md).
+Semgrep architecture), see the standalone Whitney repo at
+[github.com/transilienceai/whitney](https://github.com/transilienceai/whitney).
+(`src/whitney/TRUST.md` was retired in the 2026-04-13 Whitney/Shasta split.)
 
 ---
 
@@ -127,7 +129,7 @@ The full suite runs on every PR via
 This is the layer that closes the most embarrassing failure mode:
 **numeric claims in the README that don't match the code.**
 
-`tests/test_integrity/test_doc_claims.py` contains **16 parametrized assertions** that AST-count the source tree and assert each numeric claim in `README.md`, `TRUST.md`, `src/whitney/README.md`, and `src/whitney/TRUST.md` matches reality:
+`tests/test_integrity/test_doc_claims.py` contains **16 parametrized assertions** that AST-count the source tree and assert each numeric claim in `README.md` and `TRUST.md` matches reality:
 
 | Test | Claim it verifies | Source of truth |
 |---|---|---|
@@ -365,8 +367,8 @@ This document does not promise:
   change. CIS AWS v3.0 and CIS Azure v3.0 are the current targets;
   when a new version ships, the mapping work is tracked as an issue.
 
-What this document **does** promise: every numeric claim in the README,
-this file, and `src/whitney/TRUST.md` is verified by an automated test
+What this document **does** promise: every numeric claim in the README and
+this file is verified by an automated test
 that fails the build when it drifts. The audit trail is in CI logs and
 closed issues. The reproducibility is guaranteed by the deterministic
 detection layer.
@@ -379,9 +381,9 @@ detection layer.
 * [`ENGINEERING_PRINCIPLES.md`](./ENGINEERING_PRINCIPLES.md) — the 20
   principles the codebase is held to
 * [`CHANGELOG.md`](./CHANGELOG.md) — versioned history
-* [`src/whitney/TRUST.md`](./src/whitney/TRUST.md) — Whitney-specific
+* [Whitney repo](https://github.com/transilienceai/whitney) — Whitney-specific
   validation story (vulnerability fixtures, live cloud validation,
-  Semgrep dual-engine architecture)
+  Semgrep dual-engine architecture) — moved to standalone repo 2026-04-13
 * [`tests/test_integrity/test_doc_claims.py`](./tests/test_integrity/test_doc_claims.py)
   — the load-bearing test file for Layer 2
 * [Closed issues #3–#12](https://github.com/transilienceai/shasta/issues?q=is%3Aissue+is%3Aclosed)

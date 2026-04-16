@@ -19,79 +19,130 @@
 {% else %}
 
 <!-- Score Cards Row -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
   <!-- SOC 2 Score -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <div class="flex items-center justify-between mb-4">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-3">
       <div>
-        <p class="text-sm font-medium text-gray-500 uppercase tracking-wider">SOC 2</p>
-        <p class="text-3xl font-bold mt-1 {% if soc2_score.score_percentage >= 80 %}text-emerald-600{% elif soc2_score.score_percentage >= 60 %}text-amber-500{% else %}text-red-600{% endif %}">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">SOC 2</p>
+        <p class="text-2xl font-bold mt-1 {% if soc2_score.score_percentage >= 80 %}text-emerald-600{% elif soc2_score.score_percentage >= 60 %}text-amber-500{% else %}text-red-600{% endif %}">
           {{ soc2_score.score_percentage }}%
         </p>
-        <p class="text-sm text-gray-500 mt-1">Grade <span class="font-semibold {% if soc2_score.grade in ['A','B'] %}text-emerald-600{% elif soc2_score.grade == 'C' %}text-amber-500{% else %}text-red-600{% endif %}">{{ soc2_score.grade }}</span></p>
+        <p class="text-xs text-gray-500 mt-1">Grade <span class="font-semibold {% if soc2_score.grade in ['A','B'] %}text-emerald-600{% elif soc2_score.grade == 'C' %}text-amber-500{% else %}text-red-600{% endif %}">{{ soc2_score.grade }}</span></p>
       </div>
-      <div class="w-20 h-20">
+      <div class="w-16 h-16">
         <canvas id="soc2Ring"></canvas>
       </div>
     </div>
-    <div class="flex items-center space-x-4 text-xs text-gray-500">
-      <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ soc2_score.passing }} pass</span>
-      <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>{{ soc2_score.failing }} fail</span>
-      <span><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>{{ soc2_score.partial }} partial</span>
+    <div class="flex items-center space-x-3 text-xs text-gray-500">
+      <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ soc2_score.passing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>{{ soc2_score.failing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>{{ soc2_score.partial }}</span>
     </div>
   </div>
 
   <!-- ISO 27001 Score -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <div class="flex items-center justify-between mb-4">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-3">
       <div>
-        <p class="text-sm font-medium text-gray-500 uppercase tracking-wider">ISO 27001</p>
-        <p class="text-3xl font-bold mt-1 {% if iso_score.score_percentage >= 80 %}text-emerald-600{% elif iso_score.score_percentage >= 60 %}text-amber-500{% else %}text-red-600{% endif %}">
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">ISO 27001</p>
+        <p class="text-2xl font-bold mt-1 {% if iso_score.score_percentage >= 80 %}text-emerald-600{% elif iso_score.score_percentage >= 60 %}text-amber-500{% else %}text-red-600{% endif %}">
           {{ iso_score.score_percentage }}%
         </p>
-        <p class="text-sm text-gray-500 mt-1">Grade <span class="font-semibold {% if iso_score.grade in ['A','B'] %}text-emerald-600{% elif iso_score.grade == 'C' %}text-amber-500{% else %}text-red-600{% endif %}">{{ iso_score.grade }}</span></p>
+        <p class="text-xs text-gray-500 mt-1">Grade <span class="font-semibold {% if iso_score.grade in ['A','B'] %}text-emerald-600{% elif iso_score.grade == 'C' %}text-amber-500{% else %}text-red-600{% endif %}">{{ iso_score.grade }}</span></p>
       </div>
-      <div class="w-20 h-20">
+      <div class="w-16 h-16">
         <canvas id="isoRing"></canvas>
       </div>
     </div>
-    <div class="flex items-center space-x-4 text-xs text-gray-500">
-      <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ iso_score.passing }} pass</span>
-      <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>{{ iso_score.failing }} fail</span>
-      <span><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>{{ iso_score.partial }} partial</span>
+    <div class="flex items-center space-x-3 text-xs text-gray-500">
+      <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ iso_score.passing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>{{ iso_score.failing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>{{ iso_score.partial }}</span>
     </div>
   </div>
 
-  <!-- Summary Card -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <div class="flex items-center justify-between mb-4">
+  <!-- HIPAA Score -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-3">
       <div>
-        <p class="text-sm font-medium text-gray-500 uppercase tracking-wider">Scan Summary</p>
-        <p class="text-3xl font-bold mt-1 text-gray-800">{{ summary.total_findings }}</p>
-        <p class="text-sm text-gray-500 mt-1">Total Findings</p>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">HIPAA</p>
+        <p class="text-2xl font-bold mt-1 {% if hipaa_score.score_percentage >= 80 %}text-emerald-600{% elif hipaa_score.score_percentage >= 60 %}text-amber-500{% else %}text-red-600{% endif %}">
+          {{ hipaa_score.score_percentage }}%
+        </p>
+        <p class="text-xs text-gray-500 mt-1">Grade <span class="font-semibold {% if hipaa_score.grade in ['A','B'] %}text-emerald-600{% elif hipaa_score.grade == 'C' %}text-amber-500{% else %}text-red-600{% endif %}">{{ hipaa_score.grade }}</span></p>
       </div>
-      <div class="w-12 h-12 rounded-lg bg-indigo-50 flex items-center justify-center">
-        <svg class="w-6 h-6 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="w-16 h-16">
+        <canvas id="hipaaRing"></canvas>
+      </div>
+    </div>
+    <div class="flex items-center space-x-3 text-xs text-gray-500">
+      <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ hipaa_score.passing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>{{ hipaa_score.failing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>{{ hipaa_score.partial }}</span>
+    </div>
+  </div>
+
+  <!-- Whitney AI Governance Score -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">ISO 42001 (AI)</p>
+        {% if whitney_score %}
+        <p class="text-2xl font-bold mt-1 {% if whitney_score.score_percentage >= 80 %}text-emerald-600{% elif whitney_score.score_percentage >= 60 %}text-amber-500{% else %}text-red-600{% endif %}">
+          {{ whitney_score.score_percentage }}%
+        </p>
+        <p class="text-xs text-gray-500 mt-1">Grade <span class="font-semibold {% if whitney_score.grade in ['A','B'] %}text-emerald-600{% elif whitney_score.grade == 'C' %}text-amber-500{% else %}text-red-600{% endif %}">{{ whitney_score.grade }}</span></p>
+        {% else %}
+        <p class="text-2xl font-bold mt-1 text-gray-300">N/A</p>
+        <p class="text-xs text-gray-400 mt-1">No AI services</p>
+        {% endif %}
+      </div>
+      <div class="w-16 h-16">
+        <canvas id="whitneyRing"></canvas>
+      </div>
+    </div>
+    {% if whitney_score %}
+    <div class="flex items-center space-x-3 text-xs text-gray-500">
+      <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ whitney_score.passing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>{{ whitney_score.failing }}</span>
+      <span><span class="inline-block w-2 h-2 rounded-full bg-violet-400 mr-1"></span>{{ whitney_score.requires_policy }} policy</span>
+    </div>
+    {% else %}
+    <div class="flex items-center text-xs text-gray-400">Run /discover-ai</div>
+    {% endif %}
+  </div>
+
+  <!-- Summary Card -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Total</p>
+        <p class="text-2xl font-bold mt-1 text-gray-800">{{ summary.total_findings }}</p>
+        <p class="text-xs text-gray-500 mt-1">Findings</p>
+      </div>
+      <div class="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
+        <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
         </svg>
       </div>
     </div>
-    <div class="grid grid-cols-2 gap-2 text-xs">
+    <div class="grid grid-cols-2 gap-1 text-xs">
       <div class="flex items-center">
-        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-2"></span>
-        <span class="text-gray-600">{{ summary.passed }} Passed</span>
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5"></span>
+        <span class="text-gray-600">{{ summary.passed }}</span>
       </div>
       <div class="flex items-center">
-        <span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-2"></span>
-        <span class="text-gray-600">{{ summary.failed }} Failed</span>
+        <span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1.5"></span>
+        <span class="text-gray-600">{{ summary.failed }}</span>
       </div>
       <div class="flex items-center">
-        <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-2"></span>
-        <span class="text-gray-600">{{ summary.partial }} Partial</span>
+        <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1.5"></span>
+        <span class="text-gray-600">{{ summary.partial }}</span>
       </div>
       <div class="flex items-center">
-        <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 mr-2"></span>
-        <span class="text-gray-600">{{ risk_count }} Risks</span>
+        <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 mr-1.5"></span>
+        <span class="text-gray-600">{{ risk_count }} risks</span>
       </div>
     </div>
   </div>
@@ -225,6 +276,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
   createScoreRing('soc2Ring', {{ soc2_score.score_percentage }}, ringColor({{ soc2_score.score_percentage }}));
   createScoreRing('isoRing', {{ iso_score.score_percentage }}, ringColor({{ iso_score.score_percentage }}));
+  createScoreRing('hipaaRing', {{ hipaa_score.score_percentage }}, ringColor({{ hipaa_score.score_percentage }}));
+  {% if whitney_score %}
+  createScoreRing('whitneyRing', {{ whitney_score.score_percentage }}, ringColor({{ whitney_score.score_percentage }}));
+  {% else %}
+  createScoreRing('whitneyRing', 0, '#e2e8f0');
+  {% endif %}
 
   // Trend line chart
   const trendData = {{ trend_data | safe }};
@@ -254,6 +311,16 @@ document.addEventListener('DOMContentLoaded', function() {
             tension: 0.3,
             pointRadius: 4,
             pointBackgroundColor: '#10b981'
+          },
+          {
+            label: 'HIPAA',
+            data: trendData.hipaa || trendData.soc2.map(() => 0),
+            borderColor: '#f43f5e',
+            backgroundColor: 'rgba(244,63,94,0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4,
+            pointBackgroundColor: '#f43f5e'
           }
         ]
       },

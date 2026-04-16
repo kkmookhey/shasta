@@ -183,6 +183,8 @@ def check_conditional_access_mfa(
         if (
             "Authorization" in error_msg
             or "Forbidden" in error_msg
+            or "AccessDenied" in error_msg
+            or "403" in error_msg
             or "insufficient" in error_msg.lower()
         ):
             return [

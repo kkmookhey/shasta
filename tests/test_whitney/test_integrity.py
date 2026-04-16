@@ -75,8 +75,8 @@ class TestModulesExistAndHaveCode:
 class TestNoEmptyStubDirectories:
     """Every AI subdirectory must contain real Python files (not stubs).
 
-    Post-split (2026-04-13): code + sbom under src/whitney/, cloud AI +
-    AI compliance + AI policies under src/shasta/.
+    Post-split (2026-04-13): code + sbom moved to standalone Whitney repo.
+    Cloud AI checks, AI compliance, and AI policies live under src/shasta/.
     """
 
     @pytest.mark.parametrize(
@@ -107,7 +107,7 @@ class TestNoEmptyStubDirectories:
 # TestCodeCheckCounts removed in 2026-04-13 rebuild — the legacy
 # ALL_CHECKS list of 20 Python check functions was replaced by
 # Semgrep rule files. Per-rule counting now lives in the corpus eval
-# harness (tests/test_whitney/corpus/eval.py), not in integrity tests.
+# harness in the standalone Whitney repo, not in Shasta integrity tests.
 
 
 class TestComplianceFrameworkCounts:

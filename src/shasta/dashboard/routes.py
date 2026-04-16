@@ -8,12 +8,28 @@ from typing import Any
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from shasta.compliance.iso27001_mapper import get_iso27001_control_summary
+from shasta.compliance.hipaa_mapper import (
+    enrich_findings_with_hipaa,
+    get_hipaa_control_summary,
+)
+from shasta.compliance.hipaa_scorer import calculate_hipaa_score
+from shasta.compliance.iso27001_mapper import (
+    enrich_findings_with_iso27001,
+    get_iso27001_control_summary,
+)
 from shasta.compliance.iso27001_scorer import calculate_iso27001_score
-from shasta.compliance.mapper import get_control_summary
+from shasta.compliance.mapper import enrich_findings_with_controls, get_control_summary
 from shasta.compliance.scorer import calculate_score
 from shasta.db.schema import ShastaDB
 from shasta.evidence.models import ScanSummary
+
+
+def _enrich_all_frameworks(findings):
+    """Ensure all framework mappings are populated on the findings list."""
+    enrich_findings_with_controls(findings)
+    enrich_findings_with_iso27001(findings)
+    enrich_findings_with_hipaa(findings)
+    return findings
 
 router = APIRouter()
 
@@ -44,10 +60,23 @@ async def home(request: Request):
             {"request": request, "scan": None, "no_data": True},
         )
 
+    _enrich_all_frameworks(scan.findings)
     soc2_score = calculate_score(scan.findings)
     iso_score = calculate_iso27001_score(scan.findings)
+    hipaa_score = calculate_hipaa_score(scan.findings)
     history = db.get_scan_history(limit=10)
     risks = db.get_risk_items(scan.account_id)
+
+    # Whitney AI governance score (only if AI findings exist)
+    whitney_score = None
+    ai_findings = [f for f in scan.findings if f.domain.value == "ai_governance"]
+    if ai_findings:
+        try:
+            from shasta.compliance.ai.scorer import calculate_ai_governance_score
+
+            whitney_score = calculate_ai_governance_score(ai_findings)
+        except ImportError:
+            pass
 
     # Severity counts from summary
     summary = scan.summary or ScanSummary.from_findings(scan.findings)
@@ -71,6 +100,8 @@ async def home(request: Request):
             "no_data": False,
             "soc2_score": soc2_score,
             "iso_score": iso_score,
+            "hipaa_score": hipaa_score,
+            "whitney_score": whitney_score,
             "summary": summary,
             "top_findings": top_findings,
             "trend_data": json.dumps(trend_data),
@@ -153,6 +184,7 @@ async def finding_detail(request: Request, finding_id: str):
 
     finding = None
     if scan:
+        _enrich_all_frameworks(scan.findings)
         for f in scan.findings:
             if f.id == finding_id:
                 finding = f
@@ -164,6 +196,7 @@ async def finding_detail(request: Request, finding_id: str):
     # Get mapped controls
     soc2_controls = finding.soc2_controls
     iso_controls = finding.details.get("iso27001_controls", [])
+    hipaa_controls = finding.details.get("hipaa_controls", [])
 
     return _templates().TemplateResponse(
         "finding_detail.html",
@@ -172,6 +205,7 @@ async def finding_detail(request: Request, finding_id: str):
             "finding": finding,
             "soc2_controls": soc2_controls,
             "iso_controls": iso_controls,
+            "hipaa_controls": hipaa_controls,
             "details_json": json.dumps(finding.details, indent=2, default=str),
         },
     )
@@ -192,8 +226,11 @@ async def controls(request: Request, framework: str = Query("soc2")):
             {"request": request, "controls": {}, "framework": framework, "no_data": True},
         )
 
+    _enrich_all_frameworks(scan.findings)
     if framework == "iso27001":
         ctrl_summary = get_iso27001_control_summary(scan.findings)
+    elif framework == "hipaa":
+        ctrl_summary = get_hipaa_control_summary(scan.findings)
     else:
         ctrl_summary = get_control_summary(scan.findings)
 
@@ -269,6 +306,7 @@ async def api_summary():
 
     soc2_score = calculate_score(scan.findings)
     iso_score = calculate_iso27001_score(scan.findings)
+    hipaa_score = calculate_hipaa_score(scan.findings)
     summary = scan.summary or ScanSummary.from_findings(scan.findings)
     history = db.get_scan_history(limit=10)
     trend = _parse_history_scores(history)
@@ -289,6 +327,13 @@ async def api_summary():
                 "passing": iso_score.passing,
                 "failing": iso_score.failing,
                 "partial": iso_score.partial,
+            },
+            "hipaa": {
+                "score": hipaa_score.score_percentage,
+                "grade": hipaa_score.grade,
+                "passing": hipaa_score.passing,
+                "failing": hipaa_score.failing,
+                "partial": hipaa_score.partial,
             },
             "severity": {
                 "critical": summary.critical_count,
